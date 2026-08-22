@@ -66,6 +66,11 @@ export async function verifyAlgorandTransaction(
       const amt = txn.amt || txn["payment-transaction"]?.amount || 0;
       const rcvr = txn.rcv || txn["payment-transaction"]?.receiver || "";
 
+      const type = txn.type || (txn["payment-transaction"] ? "pay" : "");
+      if (type !== "pay") {
+        return { success: false, error: `Invalid transaction type. Expected 'pay' (Payment), got '${txn.type}'` };
+      }
+
       if (rcvr !== expectedRecipient) {
         return { success: false, error: `Recipient mismatch. Expected ${expectedRecipient}, got ${rcvr}` };
       }
@@ -89,6 +94,10 @@ export async function verifyAlgorandTransaction(
     const pendingData = await response.json();
     const txn = pendingData.txn?.txn;
     const amt = txn?.amt || 0;
+
+    if (txn?.type && txn.type !== "pay") {
+      return { success: false, error: `Invalid pending transaction type. Expected 'pay' (Payment), got '${txn.type}'` };
+    }
 
     return {
       success: true,
