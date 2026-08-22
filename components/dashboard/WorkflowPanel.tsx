@@ -3,7 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { SubtaskRecord } from "@/lib/types";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
@@ -18,7 +18,7 @@ function statusBadge(status: string) {
   return map[status] ?? "bg-muted";
 }
 
-export function WorkflowPanel({ subtasks }: { subtasks: SubtaskRecord[] }) {
+export function WorkflowPanel({ subtasks, isPlanning }: { subtasks: SubtaskRecord[]; isPlanning?: boolean }) {
   if (subtasks.length === 0) {
     return (
       <Card>
@@ -26,7 +26,14 @@ export function WorkflowPanel({ subtasks }: { subtasks: SubtaskRecord[] }) {
           <CardTitle className="text-base">Workflow Graph</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">No workflow constructed yet — submit a task to begin.</p>
+          {isPlanning ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Manager is decomposing the task into subtasks...
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No workflow constructed yet — submit a task to begin.</p>
+          )}
         </CardContent>
       </Card>
     );
@@ -47,7 +54,10 @@ export function WorkflowPanel({ subtasks }: { subtasks: SubtaskRecord[] }) {
                 <div className={`rounded-lg border p-3 w-52 space-y-1.5 ${statusBadge(s.status)} bg-opacity-40 border-current/20`}>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium truncate">{s.type}</span>
-                    <Badge variant="outline" className={statusBadge(s.status)}>
+                    <Badge variant="outline" className={`gap-1 ${statusBadge(s.status)}`}>
+                      {["BIDDING", "ASSIGNED", "EXECUTING", "AWAITING_QA"].includes(s.status) && (
+                        <Loader2 className="size-3 animate-spin" />
+                      )}
                       {s.status}
                     </Badge>
                   </div>

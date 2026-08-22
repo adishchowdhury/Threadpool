@@ -23,8 +23,18 @@ console.log("Loaded dashboard. Agent registry visible:", await page.locator("tex
 await page.click('button:has-text("Run Task")');
 console.log("Clicked Run Task");
 
-// Wait for task to progress: workflow subtasks should appear
-await page.waitForSelector("text=market_research", { timeout: 20000 }).catch(() => console.log("market_research subtask card did not appear in time"));
+// Capture the planning/loading state before subtasks exist
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${shotDir}/02a-planning.png`, fullPage: true });
+
+// Wait for the workflow graph itself (not just the activity-feed log line)
+// to show a subtask card, i.e. a status badge inside that panel.
+const workflowCard = page.locator("text=Workflow Graph").locator("..").locator("..");
+await workflowCard
+  .getByText(/^(PENDING|BIDDING|ASSIGNED|EXECUTING|AWAITING_QA|DONE)$/)
+  .first()
+  .waitFor({ timeout: 20000 })
+  .catch(() => console.log("no subtask status badge appeared in the workflow graph in time"));
 await page.screenshot({ path: `${shotDir}/02-running.png`, fullPage: true });
 
 // Wait for completion (Final Report) or failure, up to 60s

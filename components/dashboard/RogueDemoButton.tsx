@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShieldAlert } from "lucide-react";
+import { toast } from "sonner";
 
 export function RogueDemoButton({ taskId }: { taskId: string | null }) {
   const [result, setResult] = useState<{ blocked: boolean; reason: string | null; authorizedAmount: number; requestedAmount: number } | null>(null);
@@ -20,7 +21,13 @@ export function RogueDemoButton({ taskId }: { taskId: string | null }) {
         body: JSON.stringify({ taskId }),
       });
       const data = await res.json();
-      if (res.ok) setResult(data);
+      if (res.ok) {
+        setResult(data);
+      } else {
+        toast.error(typeof data.error === "string" ? data.error : "Rogue demo request failed.");
+      }
+    } catch {
+      toast.error("Couldn't reach the server to fire the rogue demo.");
     } finally {
       setFiring(false);
     }

@@ -32,6 +32,8 @@ export function TaskForm({ onCreated, disabled }: { onCreated: (taskId: string) 
         return;
       }
       onCreated(data.task.id);
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
     } finally {
       setSubmitting(false);
     }
