@@ -217,6 +217,8 @@ export async function runTask(taskId: string) {
         description: subtask.type,
         taskPrompt: task.prompt,
         feedback,
+        taskId: taskId,
+        agentId: active.agent.id,
       });
       const actualLatencyMs = Date.now() - executionStart;
 

@@ -15,7 +15,17 @@ function Stat({ label, value, tone }: { label: string; value: string | number; t
   );
 }
 
-export function EconomyPanel({ task, ledger }: { task: TaskRecord | null; ledger: CentralLedgerRecord[] }) {
+export function EconomyPanel({
+  task,
+  ledger,
+  paymentIntents = [],
+  blockchainTransactions = [],
+}: {
+  task: TaskRecord | null;
+  ledger: CentralLedgerRecord[];
+  paymentIntents?: any[];
+  blockchainTransactions?: any[];
+}) {
   const locked = task?.centralEscrow?.totalLocked ?? 0;
   const released = task?.centralEscrow?.totalReleased ?? 0;
   const refunded = task?.centralEscrow?.totalRefunded ?? 0;
@@ -24,7 +34,7 @@ export function EconomyPanel({ task, ledger }: { task: TaskRecord | null; ledger
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Economy</CardTitle>
+        <CardTitle className="text-base">Economy & Blockchain Settlement</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
@@ -35,6 +45,71 @@ export function EconomyPanel({ task, ledger }: { task: TaskRecord | null; ledger
           <Stat label="Refunded" value={refunded} />
           <Stat label="Blocked Attempts" value={blocked} tone={blocked > 0 ? "danger" : undefined} />
         </div>
+        
+        {paymentIntents.length > 0 && (
+          <>
+            <Separator />
+            <div>
+              <div className="text-xs font-semibold text-primary mb-2 flex items-center justify-between">
+                <span>Ethereum Sepolia x402 Payments</span>
+                <span className="text-[10px] text-muted-foreground uppercase">Sepolia</span>
+              </div>
+              <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
+                {paymentIntents.map((pi: any) => {
+                  const bt = blockchainTransactions.find((b: any) => b.paymentIntentId === pi.id);
+                  let meta: any = null;
+                  try {
+                    if (bt?.rawMetadata) meta = JSON.parse(bt.rawMetadata);
+                  } catch {}
+
+                  return (
+                    <div key={pi.id} className="text-[11px] font-mono rounded border border-border bg-card p-2 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-foreground">Service Pay</span>
+                        <span className={`px-1 py-0.2 rounded text-[9px] uppercase font-semibold ${
+                          pi.status === "SETTLED" ? "bg-emerald-500/10 text-emerald-500" :
+                          pi.status === "FAILED" ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-500"
+                        }`}>
+                          {pi.status}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground flex justify-between">
+                        <span>Amount: {pi.amount} {pi.currency}</span>
+                        <span>Key: {pi.idempotencyKey.split("_").pop()}</span>
+                      </div>
+                      {pi.blockchainTxId && (
+                        <div className="text-primary truncate">
+                          Tx: <a
+                            href={`https://sepolia.etherscan.io/tx/${pi.blockchainTxId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline hover:text-primary/80"
+                          >
+                            {pi.blockchainTxId.substring(0, 18)}...
+                          </a>
+                        </div>
+                      )}
+                      {meta?.anchorTxHash && (
+                        <div className="text-[10px] text-muted-foreground truncate pt-1 border-t border-dashed border-border/80 flex items-center justify-between">
+                          <span>Anchored Ledger:</span>
+                          <a
+                            href={`https://sepolia.etherscan.io/tx/${meta.anchorTxHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline text-emerald-600 hover:text-emerald-500 font-semibold"
+                          >
+                            {meta.anchorTxHash.substring(0, 12)}...
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
+
         <Separator />
         <div>
           <div className="text-xs text-muted-foreground mb-2">Recent Transactions</div>

@@ -12,5 +12,18 @@ export async function GET(request: Request) {
     include: { fromWallet: true, toWallet: true },
   });
 
-  return NextResponse.json({ transactions });
+  const paymentIntents = taskId ? await prisma.paymentIntent.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "desc" },
+  }) : [];
+
+  const blockchainTransactions = taskId && paymentIntents.length > 0 ? await prisma.blockchainTransaction.findMany({
+    where: {
+      paymentIntentId: {
+        in: paymentIntents.map((pi) => pi.id),
+      },
+    },
+  }) : [];
+
+  return NextResponse.json({ transactions, paymentIntents, blockchainTransactions });
 }
