@@ -51,8 +51,8 @@ export function EconomyPanel({
             <Separator />
             <div>
               <div className="text-xs font-semibold text-primary mb-2 flex items-center justify-between">
-                <span>Ethereum Sepolia x402 Payments</span>
-                <span className="text-[10px] text-muted-foreground uppercase">Sepolia</span>
+                <span>Multi-Chain x402 Payments</span>
+                <span className="text-[10px] text-muted-foreground uppercase">Settled</span>
               </div>
               <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
                 {paymentIntents.map((pi: any) => {
@@ -62,10 +62,15 @@ export function EconomyPanel({
                     if (bt?.rawMetadata) meta = JSON.parse(bt.rawMetadata);
                   } catch {}
 
+                  const isAlgo = pi.currency === "ALGO";
+                  const txLink = isAlgo
+                    ? `https://testnet.explorer.perawallet.app/tx/${pi.blockchainTxId}`
+                    : `https://sepolia.etherscan.io/tx/${pi.blockchainTxId}`;
+
                   return (
                     <div key={pi.id} className="text-[11px] font-mono rounded border border-border bg-card p-2 space-y-1">
                       <div className="flex items-center justify-between">
-                        <span className="font-semibold text-foreground">Service Pay</span>
+                        <span className="font-semibold text-foreground">{isAlgo ? "Algorand Pay" : "Ethereum Pay"}</span>
                         <span className={`px-1 py-0.2 rounded text-[9px] uppercase font-semibold ${
                           pi.status === "SETTLED" ? "bg-emerald-500/10 text-emerald-500" :
                           pi.status === "FAILED" ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-500"
@@ -80,7 +85,7 @@ export function EconomyPanel({
                       {pi.blockchainTxId && (
                         <div className="text-primary truncate">
                           Tx: <a
-                            href={`https://sepolia.etherscan.io/tx/${pi.blockchainTxId}`}
+                            href={txLink}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="underline hover:text-primary/80"
@@ -89,7 +94,7 @@ export function EconomyPanel({
                           </a>
                         </div>
                       )}
-                      {meta?.anchorTxHash && (
+                      {!isAlgo && meta?.anchorTxHash && (
                         <div className="text-[10px] text-muted-foreground truncate pt-1 border-t border-dashed border-border/80 flex items-center justify-between">
                           <span>Anchored Ledger:</span>
                           <a

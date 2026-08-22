@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { emitEvent } from "@/lib/events/emit";
-import { getManagerAddress, sendEthereumPayment, verifyEthereumTransaction, anchorTransactionHash } from "@/lib/blockchain/ethereum";
+import * as eth from "@/lib/blockchain/ethereum";
+import * as algo from "@/lib/blockchain/algorand";
 
 export interface PaymentRequiredPayload {
   x402Version: number;
@@ -29,16 +30,10 @@ export interface PaymentResponsePayload {
   transaction: string;
 }
 
-/**
- * Encodes a JSON payload into a Base64 string for x402 headers.
- */
 export function encodeHeaderPayload(payload: any): string {
   return Buffer.from(JSON.stringify(payload)).toString("base64");
 }
 
-/**
- * Decodes a Base64 string from x402 headers back into a JSON object.
- */
 export function decodeHeaderPayload<T>(encoded: string): T {
   try {
     const jsonStr = Buffer.from(encoded, "base64").toString("utf-8");
@@ -48,23 +43,27 @@ export function decodeHeaderPayload<T>(encoded: string): T {
   }
 }
 
+function getProvider() {
+  return process.env.BLOCKCHAIN_PROVIDER === "algorand" ? "algorand" : "ethereum";
+}
+
 /**
  * The deterministic backend Payment Guard and Circuit Breaker for x402 requests.
- * Evaluates spending limits, checks budgets, records security events if limits are exceeded,
- * and executes payment on Ethereum Sepolia.
+ * Supports both Ethereum Sepolia and Algorand Testnet.
  */
 export async function executeX402PaymentGuard(params: {
   taskId: string;
   requestingAgentId: string;
   recipientServiceId: string;
-  amount: number; // in tokens/Wei equivalent
+  amount: number; // in tokens/Wei/microAlgos
   purpose: string;
   idempotencyKey: string;
 }): Promise<
   | { decision: "APPROVE"; txId: string; network: string }
   | { decision: "BLOCK"; reason: string }
 > {
-  const MAX_TRANSACTION_LIMIT = 5000; // e.g. 5,000 Wei / 5.00 tokens limit
+  const provider = getProvider();
+  const MAX_TRANSACTION_LIMIT = 5000;
 
   return prisma.$transaction(async (db) => {
     // 1. Fetch Task
@@ -79,7 +78,6 @@ export async function executeX402PaymentGuard(params: {
     }
 
     if (blockedReason) {
-      // Create SecurityEvent in the DB
       await db.securityEvent.create({
         data: {
           taskId: params.taskId,
@@ -97,7 +95,6 @@ export async function executeX402PaymentGuard(params: {
         },
       });
 
-      // Write transaction as BLOCKED in the ledger to maintain internal balance audits
       await db.centralLedger.create({
         data: {
           taskId: params.taskId,
@@ -111,7 +108,6 @@ export async function executeX402PaymentGuard(params: {
         },
       });
 
-      // Emit realtime events to alert UI/Activity feed
       await emitEvent(db, {
         taskId: params.taskId,
         actor: "circuit_breaker",
@@ -135,7 +131,7 @@ export async function executeX402PaymentGuard(params: {
         return {
           decision: "APPROVE" as const,
           txId: existingIntent.blockchainTxId,
-          network: existingIntent.network || "sepolia",
+          network: existingIntent.network || (provider === "algorand" ? "testnet" : "sepolia"),
         };
       }
       return { decision: "BLOCK" as const, reason: "DUPLICATE_IDEMPOTENCY_KEY" };
@@ -147,40 +143,60 @@ export async function executeX402PaymentGuard(params: {
         requestingAgentId: params.requestingAgentId,
         recipientServiceId: params.recipientServiceId,
         amount: params.amount,
-        currency: "ETH",
+        currency: provider === "algorand" ? "ALGO" : "ETH",
         status: "PENDING",
         idempotencyKey: params.idempotencyKey,
       },
     });
 
-    // 4. Submit Ethereum Payment
+    // 4. Submit Payment
     try {
-      const payment = await sendEthereumPayment(
-        params.taskId,
-        params.requestingAgentId,
-        params.amount,
-        getManagerAddress(),
-        params.purpose
-      );
+      let txId = "";
+      let network = "";
+      let rawMetadata = "";
 
-      // Anchor the transaction hash to the Ethereum Sepolia contract
-      const anchor = await anchorTransactionHash(payment.txId);
+      if (provider === "algorand") {
+        const payment = await algo.sendAlgorandPayment(
+          params.taskId,
+          params.requestingAgentId,
+          params.amount,
+          algo.getManagerAddress(),
+          params.purpose
+        );
+        txId = payment.txId;
+        network = payment.network;
+        rawMetadata = JSON.stringify({ note: "Algorand micro-payment" });
+      } else {
+        const payment = await eth.sendEthereumPayment(
+          params.taskId,
+          params.requestingAgentId,
+          params.amount,
+          eth.getManagerAddress(),
+          params.purpose
+        );
+        txId = payment.txId;
+        network = payment.network;
+
+        // Anchor the transaction hash to the Ethereum Sepolia contract
+        const anchor = await eth.anchorTransactionHash(payment.txId);
+        rawMetadata = JSON.stringify({
+          anchorTxHash: anchor.anchorTxHash,
+          contractAddress: anchor.contractAddress,
+          anchoredAt: new Date().toISOString(),
+        });
+      }
 
       // Create BlockchainTransaction record
       await db.blockchainTransaction.create({
         data: {
           paymentIntentId: intent.id,
-          network: payment.network,
-          transactionId: payment.txId,
+          network: network,
+          transactionId: txId,
           amount: params.amount,
-          asset: "ETH",
+          asset: provider === "algorand" ? "ALGO" : "ETH",
           status: "CONFIRMED",
           confirmedAt: new Date(),
-          rawMetadata: JSON.stringify({
-            anchorTxHash: anchor.anchorTxHash,
-            contractAddress: anchor.contractAddress,
-            anchoredAt: new Date().toISOString(),
-          }),
+          rawMetadata,
         },
       });
 
@@ -189,8 +205,8 @@ export async function executeX402PaymentGuard(params: {
         where: { id: intent.id },
         data: {
           status: "SETTLED",
-          blockchainTxId: payment.txId,
-          network: payment.network,
+          blockchainTxId: txId,
+          network: network,
           settledAt: new Date(),
         },
       });
@@ -209,21 +225,21 @@ export async function executeX402PaymentGuard(params: {
         payload: {
           agentId: params.requestingAgentId,
           amount: params.amount,
-          txId: payment.txId,
+          txId: txId,
         },
       });
 
       return {
         decision: "APPROVE" as const,
-        txId: payment.txId,
-        network: payment.network,
+        txId: txId,
+        network: network,
       };
     } catch (err: any) {
       await db.paymentIntent.update({
         where: { id: intent.id },
         data: {
           status: "FAILED",
-          failureReason: err.message || "Ethereum payment execution failed",
+          failureReason: err.message || `${provider} payment execution failed`,
         },
       });
       return { decision: "BLOCK" as const, reason: "BLOCKCHAIN_PAYMENT_FAILED" };
