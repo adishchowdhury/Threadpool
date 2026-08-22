@@ -4,10 +4,17 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import type { TaskRecord, CentralLedgerRecord } from "@/lib/types";
+import type { TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord } from "@/lib/types";
 import { useDraggable } from "@/lib/hooks/useDraggable";
-import { ChevronLeft, ChevronRight, GripVertical, Wallet } from "lucide-react";
+import { ChevronLeft, ChevronRight, GripVertical, Wallet, ExternalLink } from "lucide-react";
 import { TrustPanel, type BlockchainWorkflowEventRecord } from "@/components/dashboard/TrustPanel";
+
+const ALGO_NETWORK = process.env.NEXT_PUBLIC_ALGOD_NETWORK || "testnet";
+const algoExplorerTxUrl = (txId: string) => `https://lora.algokit.io/${ALGO_NETWORK}/transaction/${txId}`;
+// Real Algorand transaction IDs are 52-char base32; older mock IDs (e.g.
+// "algo_mirror_...", "mock_tx_...") don't match and would 404 on any
+// explorer, so we only link out for IDs that look like the real thing.
+const isRealAlgorandTxId = (txId: string) => /^[A-Z2-7]{52}$/.test(txId);
 
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: "danger" | "success" }) {
   return (
@@ -31,6 +38,7 @@ export function EconomyPanel({
   paymentIntents = [],
   blockchainTransactions = [],
   blockchainWorkflowEvents = [],
+  algorandTransactions = [],
   open,
   onOpenChange,
 }: {
@@ -39,6 +47,7 @@ export function EconomyPanel({
   paymentIntents?: any[];
   blockchainTransactions?: any[];
   blockchainWorkflowEvents?: BlockchainWorkflowEventRecord[];
+  algorandTransactions?: AlgorandLedgerTransactionRecord[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -123,8 +132,9 @@ export function EconomyPanel({
                     } catch {}
 
                     const isAlgo = pi.currency === "ALGO";
+                    const hasRealAlgoTx = isAlgo && !!pi.blockchainTxId && isRealAlgorandTxId(pi.blockchainTxId);
                     const txLink = isAlgo
-                      ? `https://testnet.explorer.perawallet.app/tx/${pi.blockchainTxId}`
+                      ? (hasRealAlgoTx ? algoExplorerTxUrl(pi.blockchainTxId) : null)
                       : `https://sepolia.etherscan.io/tx/${pi.blockchainTxId}`;
 
                     return (
@@ -144,14 +154,19 @@ export function EconomyPanel({
                         </div>
                         {pi.blockchainTxId && (
                           <div className="truncate text-panel-foreground">
-                            Tx: <a
-                              href={txLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="underline hover:text-panel-muted"
-                            >
-                              {pi.blockchainTxId.substring(0, 18)}...
-                            </a>
+                            Tx: {txLink ? (
+                              <a
+                                href={txLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 underline hover:text-panel-muted"
+                              >
+                                {isAlgo && <ExternalLink className="size-2.5" />}
+                                {pi.blockchainTxId.substring(0, 18)}...
+                              </a>
+                            ) : (
+                              <span className="italic text-panel-muted">{pi.blockchainTxId.substring(0, 18)}... (simulated)</span>
+                            )}
                           </div>
                         )}
                         {!isAlgo && meta?.anchorTxHash && (
@@ -195,6 +210,63 @@ export function EconomyPanel({
               ))}
             </div>
           </div>
+
+          {algorandTransactions.length > 0 && (
+            <>
+              <Separator className="bg-panel-border" />
+              <div>
+                <div className="mb-2 flex items-center justify-between text-[11px] text-panel-muted">
+                  <span>Algorand Wallet Transfers</span>
+                  <span className="text-[10px] uppercase text-panel-muted">{ALGO_NETWORK}</span>
+                </div>
+                <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
+                  {algorandTransactions.map((tx) => {
+                    const hasRealTx = isRealAlgorandTxId(tx.txId);
+                    return (
+                      <div
+                        key={tx.id}
+                        className="space-y-1 rounded-sm border border-panel-border bg-panel-elevated p-2 font-mono text-[11px]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-panel-foreground">{tx.type}</span>
+                          <span
+                            className={cn(
+                              "px-1 py-0.2 rounded text-[9px] font-semibold uppercase",
+                              tx.status === "CONFIRMED" ? "bg-emerald-500/10 text-emerald-400" : "bg-destructive/15 text-rose-400",
+                            )}
+                          >
+                            {tx.status}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-panel-muted">
+                          <span>Amount: {tx.amount}</span>
+                          <span>{tx.purpose}</span>
+                        </div>
+                        <div className="truncate text-panel-muted">
+                          {tx.fromAddress.slice(0, 6)}…{tx.fromAddress.slice(-4)} → {tx.toAddress.slice(0, 6)}…{tx.toAddress.slice(-4)}
+                        </div>
+                        <div className="truncate text-panel-foreground">
+                          {hasRealTx ? (
+                            <a
+                              href={algoExplorerTxUrl(tx.txId)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 underline hover:text-panel-muted"
+                            >
+                              <ExternalLink className="size-2.5" />
+                              View on Algorand: {tx.txId.slice(0, 12)}...
+                            </a>
+                          ) : (
+                            <span className="italic text-panel-muted">{tx.txId} (simulated)</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
 
           {blockchainWorkflowEvents.length > 0 && (
             <>

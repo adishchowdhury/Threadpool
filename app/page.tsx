@@ -1,5 +1,5 @@
-import AgentHero from "@/components/landing/agent-hero";
+import { Dashboard } from "@/components/dashboard/Dashboard";
 
 export default function Home() {
-  return <AgentHero />;
+  return <Dashboard />;
 }

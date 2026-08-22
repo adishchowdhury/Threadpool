@@ -30,10 +30,17 @@ export async function GET(request: Request) {
     orderBy: { createdAt: "asc" },
   }) : [];
 
+  const algorandTransactions = taskId ? await prisma.algorandLedgerTransaction.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  }) : [];
+
   return NextResponse.json({
     transactions,
     paymentIntents,
     blockchainTransactions,
     blockchainWorkflowEvents,
+    algorandTransactions,
   });
 }

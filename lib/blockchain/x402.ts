@@ -64,6 +64,12 @@ export async function executeX402PaymentGuard(params: {
 > {
   const provider = getProvider();
   const MAX_TRANSACTION_LIMIT = 5000;
+  // Premium services quote in Wei/microAlgos (see premium-market-research route);
+  // the task's remainingBudget is denominated in whole virtual tokens. 1000
+  // Wei/microAlgo == 1 token is the fixed demo exchange rate — convert before
+  // comparing against or debiting the token budget.
+  const TOKEN_UNIT = 1000;
+  const tokenCost = params.amount / TOKEN_UNIT;
 
   return prisma.$transaction(async (db) => {
     // 1. Fetch Task
@@ -73,7 +79,7 @@ export async function executeX402PaymentGuard(params: {
     let blockedReason = "";
     if (params.amount > MAX_TRANSACTION_LIMIT) {
       blockedReason = "EXCEEDS_MAX_TRANSACTION_LIMIT";
-    } else if (params.amount > task.remainingBudget) {
+    } else if (tokenCost > task.remainingBudget) {
       blockedReason = "BUDGET_EXCEEDED";
     }
 
@@ -177,13 +183,15 @@ export async function executeX402PaymentGuard(params: {
         txId = payment.txId;
         network = payment.network;
 
-        // Anchor the transaction hash to the Ethereum Sepolia contract
+        // Optionally anchor the transaction hash to a registry contract (not deployed for this project)
         const anchor = await eth.anchorTransactionHash(payment.txId);
-        rawMetadata = JSON.stringify({
-          anchorTxHash: anchor.anchorTxHash,
-          contractAddress: anchor.contractAddress,
-          anchoredAt: new Date().toISOString(),
-        });
+        rawMetadata = anchor.success
+          ? JSON.stringify({
+              anchorTxHash: anchor.anchorTxHash,
+              contractAddress: anchor.contractAddress,
+              anchoredAt: new Date().toISOString(),
+            })
+          : JSON.stringify({});
       }
 
       // Create BlockchainTransaction record
@@ -211,10 +219,10 @@ export async function executeX402PaymentGuard(params: {
         },
       });
 
-      // Deduct from task budget
+      // Deduct from task budget (token-equivalent, not raw Wei/microAlgos)
       await db.task.update({
         where: { id: params.taskId },
-        data: { remainingBudget: { decrement: Math.round(params.amount) } },
+        data: { remainingBudget: { decrement: Math.round(tokenCost) } },
       });
 
       // Emit event

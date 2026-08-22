@@ -1,6 +1,16 @@
 import React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { ExternalLink } from "lucide-react";
+
+const ALGO_NETWORK = process.env.NEXT_PUBLIC_ALGOD_NETWORK || "testnet";
+const MANAGER_ALGO_ADDRESS = process.env.NEXT_PUBLIC_ALGOD_SENDER_ADDRESS || "";
+const algoExplorerTxUrl = (txId: string) => `https://lora.algokit.io/${ALGO_NETWORK}/transaction/${txId}`;
+const algoExplorerAccountUrl = (address: string) => `https://lora.algokit.io/${ALGO_NETWORK}/account/${address}`;
+// Real Algorand transaction IDs are 52-char base32. Older/mock IDs (e.g.
+// "algorand_trust_tx_...") don't match this and would 404 on any explorer,
+// so we only ever link out for IDs that look like the real thing.
+const isRealAlgorandTxId = (txId: string) => /^[A-Z2-7]{52}$/.test(txId);
 
 export interface BlockchainWorkflowEventRecord {
   id: string;
@@ -43,6 +53,23 @@ export function TrustPanel({
           Critical agent handoffs and verification proofs are cryptographically committed to Algorand as an immutable audit trail.
         </div>
 
+        {MANAGER_ALGO_ADDRESS && (
+          <a
+            href={algoExplorerAccountUrl(MANAGER_ALGO_ADDRESS)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-between rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-[11px] font-mono text-primary transition-colors hover:bg-primary/10"
+          >
+            <span className="flex items-center gap-1.5">
+              <ExternalLink className="size-3" />
+              Full transaction history on Algorand ({ALGO_NETWORK})
+            </span>
+            <span className="truncate text-primary/70">
+              {MANAGER_ALGO_ADDRESS.slice(0, 8)}…{MANAGER_ALGO_ADDRESS.slice(-6)}
+            </span>
+          </a>
+        )}
+
         <Separator />
 
         <div className="space-y-3">
@@ -73,9 +100,10 @@ export function TrustPanel({
                   iconBg = "bg-destructive";
                 }
 
-                const explorerLink = ev.transactionId
-                  ? `https://testnet.explorer.perawallet.app/tx/${ev.transactionId}`
+                const explorerLink = ev.transactionId && isRealAlgorandTxId(ev.transactionId)
+                  ? algoExplorerTxUrl(ev.transactionId)
                   : null;
+                const isLegacySimulated = !!ev.transactionId && !explorerLink;
 
                 return (
                   <div key={ev.id} className="relative text-[11px] font-mono space-y-1">
@@ -100,15 +128,19 @@ export function TrustPanel({
                       )}
                       <div className="truncate">Proof: <span className="text-foreground font-semibold">{ev.payloadHash.substring(0, 24)}...</span></div>
                       {explorerLink && (
-                        <div className="text-primary pt-0.5">
-                          Algorand Tx: <a
-                            href={explorerLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="underline hover:text-primary/80"
-                          >
-                            {ev.transactionId?.substring(0, 16)}...
-                          </a>
+                        <a
+                          href={explorerLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 pt-0.5 text-primary hover:text-primary/80"
+                        >
+                          <ExternalLink className="size-2.5" />
+                          <span className="underline">View on Algorand: {ev.transactionId?.substring(0, 12)}...</span>
+                        </a>
+                      )}
+                      {isLegacySimulated && (
+                        <div className="pt-0.5 text-muted-foreground/70 italic">
+                          Simulated tx (recorded before live anchoring was enabled) — not viewable on-chain.
                         </div>
                       )}
                     </div>

@@ -9,9 +9,12 @@ import { EconomyPanel } from "@/components/dashboard/EconomyPanel";
 import { FinalOutputPanel } from "@/components/dashboard/FinalOutputPanel";
 import { RogueDemoButton } from "@/components/dashboard/RogueDemoButton";
 import { ChatHistoryPanel } from "@/components/dashboard/ChatHistoryPanel";
+import { UserMenu } from "@/components/dashboard/UserMenu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-import type { AgentRecord, TaskRecord, CentralLedgerRecord } from "@/lib/types";
+import { Separator } from "@/components/ui/separator";
+import { firebaseConfigured } from "@/lib/firebase";
+import type { AgentRecord, TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord } from "@/lib/types";
 import { FileText, History, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -42,6 +45,7 @@ export function Dashboard() {
   const [paymentIntents, setPaymentIntents] = useState<any[]>([]);
   const [blockchainTransactions, setBlockchainTransactions] = useState<any[]>([]);
   const [blockchainWorkflowEvents, setBlockchainWorkflowEvents] = useState<any[]>([]);
+  const [algorandTransactions, setAlgorandTransactions] = useState<AlgorandLedgerTransactionRecord[]>([]);
   const [resetting, setResetting] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -124,6 +128,7 @@ export function Dashboard() {
       setPaymentIntents(data.paymentIntents ?? []);
       setBlockchainTransactions(data.blockchainTransactions ?? []);
       setBlockchainWorkflowEvents(data.blockchainWorkflowEvents ?? []);
+      setAlgorandTransactions(data.algorandTransactions ?? []);
     } catch {
       // non-critical panel — fail silently, the next poll will retry
     }
@@ -246,6 +251,12 @@ export function Dashboard() {
             <RotateCcw className="size-3.5" /> <span className="hidden sm:inline">Reset</span>
           </Button>
           <ThemeToggle />
+          {firebaseConfigured && (
+            <>
+              <Separator orientation="vertical" className="h-5 bg-panel-border" />
+              <UserMenu />
+            </>
+          )}
         </div>
       </header>
 
@@ -256,6 +267,7 @@ export function Dashboard() {
         paymentIntents={paymentIntents}
         blockchainTransactions={blockchainTransactions}
         blockchainWorkflowEvents={blockchainWorkflowEvents}
+        algorandTransactions={algorandTransactions}
         open={economyOpen}
         onOpenChange={handleEconomyOpenChange}
       />

@@ -52,10 +52,11 @@ export async function POST(request: Request) {
   // Errors are caught so an unexpected exception doesn't crash the process.
   runTask(task.id).catch(async (err) => {
     console.error("Orchestrator error for task", task.id, err);
+    const reason = err instanceof Error ? `internal orchestrator error: ${err.message}` : "internal orchestrator error";
     await prisma.task
       .update({
         where: { id: task.id },
-        data: { status: "FAILED", finalOutput: JSON.stringify({ content: null, failure_reason: "internal orchestrator error" }) },
+        data: { status: "FAILED", finalOutput: JSON.stringify({ content: null, failure_reason: reason }) },
       })
       .catch(() => {});
   });

@@ -1,6 +1,6 @@
-import { generateObject } from "ai";
 import { taskPlanSchema, type TaskPlan } from "@/lib/manager/schemas";
-import { geminiModel, isGeminiConfigured } from "@/lib/manager/gemini";
+import { isGeminiConfigured } from "@/lib/manager/gemini";
+import { generateStructured } from "@/lib/manager/structuredGenerate";
 
 // Deterministic local fallback — used when Gemini is unconfigured or the
 // call fails. Clearly labeled as a fallback everywhere it surfaces (events,
@@ -50,8 +50,7 @@ export async function decomposeTask(params: {
   }
 
   try {
-    const { object } = await generateObject({
-      model: geminiModel(),
+    const object = await generateStructured({
       schema: taskPlanSchema,
       prompt: `You are the Manager Agent for Momentum, an autonomous AI workforce optimizer.
 Decompose the following user task into 2-5 concrete subtasks, each requiring exactly one capability

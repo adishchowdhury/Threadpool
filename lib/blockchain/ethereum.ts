@@ -1,3 +1,4 @@
+import { ethers } from "ethers";
 import { emitEvent } from "@/lib/events/emit";
 import { prisma } from "@/lib/prisma";
 
@@ -5,6 +6,24 @@ const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia
 const ETHEREUM_NETWORK = process.env.ETHEREUM_NETWORK || "sepolia";
 const RECIPIENT_ADDRESS = process.env.RECIPIENT_ADDRESS || "0x44003FE45392451345c9F98dD2bB6F82c2A46463";
 const DEMO_MANAGER_ADDRESS = "0xe90457A0c8C0A9dF1212BdfdfB3C2684646A0000"; // Mock backend manager address
+
+let cachedProvider: ethers.JsonRpcProvider | null = null;
+function getProvider(): ethers.JsonRpcProvider {
+  if (!cachedProvider) {
+    cachedProvider = new ethers.JsonRpcProvider(SEPOLIA_RPC_URL);
+  }
+  return cachedProvider;
+}
+
+let cachedWallet: ethers.Wallet | null = null;
+function getSignerWallet(): ethers.Wallet | null {
+  const key = process.env.MANAGER_PRIVATE_KEY;
+  if (!key) return null;
+  if (!cachedWallet) {
+    cachedWallet = new ethers.Wallet(key, getProvider());
+  }
+  return cachedWallet;
+}
 
 export interface EthereumTransactionResult {
   txId: string;
@@ -16,7 +35,7 @@ export interface EthereumTransactionResult {
 }
 
 export function getManagerAddress(): string {
-  return DEMO_MANAGER_ADDRESS;
+  return getSignerWallet()?.address || DEMO_MANAGER_ADDRESS;
 }
 
 export function getServiceAddress(): string {
@@ -110,18 +129,34 @@ export async function sendEthereumPayment(
   recipientAddress: string,
   purpose: string
 ): Promise<{ txId: string; network: string }> {
-  const isReal = !!process.env.MANAGER_PRIVATE_KEY;
-  
-  // Create standard EVM tx hash: 0x followed by 64 hex characters
-  const randomHex = Array.from({ length: 64 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join("");
-  
-  const txHash = isReal
-    ? `0x${randomHex}`
-    : `mock_tx_0x${randomHex.substring(0, 16)}`;
+  const wallet = getSignerWallet();
 
-  console.log(`[Ethereum] Executing ${isReal ? "REAL" : "MOCK"} payment. Task: ${taskId}, Amount: ${amountWei} Wei to ${recipientAddress}`);
+  let txHash: string;
+
+  if (wallet) {
+    console.log(`[Ethereum] Broadcasting REAL tx on ${ETHEREUM_NETWORK}. Task: ${taskId}, Amount: ${amountWei} Wei to ${recipientAddress}`);
+    try {
+      const tx = await wallet.sendTransaction({
+        to: recipientAddress,
+        value: BigInt(Math.max(1, Math.round(amountWei))),
+      });
+      txHash = tx.hash;
+      console.log(`[Ethereum] Submitted tx ${txHash}, waiting for confirmation...`);
+      // Don't block the request on confirmation; it will be mined within seconds/minutes.
+      tx.wait(1).then(
+        (receipt) => console.log(`[Ethereum] Tx ${txHash} confirmed in block ${receipt?.blockNumber}`),
+        (err) => console.error(`[Ethereum] Tx ${txHash} failed to confirm:`, err.message)
+      );
+    } catch (err: any) {
+      console.error("[Ethereum] Real broadcast failed, falling back to mock:", err.message);
+      const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+      txHash = `mock_tx_0x${randomHex.substring(0, 16)}`;
+    }
+  } else {
+    console.log(`[Ethereum] MANAGER_PRIVATE_KEY not set — executing MOCK payment. Task: ${taskId}, Amount: ${amountWei} Wei to ${recipientAddress}`);
+    const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    txHash = `mock_tx_0x${randomHex.substring(0, 16)}`;
+  }
 
   await emitEvent(prisma, {
     taskId,
@@ -143,22 +178,16 @@ export async function sendEthereumPayment(
 export async function anchorTransactionHash(
   txHash: string
 ): Promise<{ success: boolean; anchorTxHash: string; contractAddress: string }> {
-  const isReal = !!process.env.MANAGER_PRIVATE_KEY;
-  const contractAddress = process.env.REGISTRY_CONTRACT_ADDRESS || "0x5395A3B8b8B8a864dF1212BdfdfB3C2684640000";
-  
-  const randomHex = Array.from({ length: 64 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join("");
-  
-  const anchorTxHash = isReal
-    ? `0x${randomHex}`
-    : `mock_anchor_0x${randomHex.substring(0, 16)}`;
+  // No registry contract is deployed for this project, so anchoring is not a
+  // real on-chain write. Label it honestly rather than fabricating a tx hash
+  // that would 404 on Etherscan.
+  const contractAddress = process.env.REGISTRY_CONTRACT_ADDRESS || "not_deployed";
 
-  console.log(`[Ethereum Anchoring] Anchoring tx: ${txHash} on contract ${contractAddress}. Anchor Tx Hash: ${anchorTxHash}`);
-  
+  console.log(`[Ethereum Anchoring] Skipped (no registry contract deployed) for tx: ${txHash}`);
+
   return {
-    success: true,
-    anchorTxHash,
+    success: false,
+    anchorTxHash: `not_anchored_${txHash}`,
     contractAddress,
   };
 }

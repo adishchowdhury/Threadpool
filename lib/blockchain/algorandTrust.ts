@@ -1,13 +1,10 @@
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import { emitEvent } from "@/lib/events/emit";
+import { isRealAlgorandConfigured, submitAnchorTransaction } from "@/lib/blockchain/algosdkClient";
 
 // Configured values from environment
-const ALGOD_SERVER = process.env.ALGOD_SERVER || "https://testnet-api.algonode.cloud";
-const ALGOD_TOKEN = process.env.ALGOD_TOKEN || "";
 const ALGOD_NETWORK = process.env.ALGOD_NETWORK || "testnet";
-const SENDER_ADDRESS = process.env.ALGOD_SENDER_ADDRESS || "MOMENTUM402MANAGERACCOUNTXXXXXXXXXXXXXX";
-const MNEMONIC = process.env.ALGOD_MNEMONIC || "";
 
 // Check if blockchain anchoring is explicitly enabled
 const BLOCKCHAIN_ENABLED = process.env.BLOCKCHAIN_ENABLED === "true";
@@ -73,8 +70,8 @@ export async function commitWorkflowEvent(input: WorkflowEventInput): Promise<{
     },
   });
 
-  // If blockchain trust layer is disabled or mnemonic is missing, mark as SKIPPED
-  if (!BLOCKCHAIN_ENABLED || !MNEMONIC) {
+  // If blockchain trust layer is disabled or no signing account is configured, mark as SKIPPED
+  if (!BLOCKCHAIN_ENABLED || !isRealAlgorandConfigured()) {
     console.log(`[Algorand Trust] Skiping blockchain anchor for event ${input.eventType}. (BLOCKCHAIN_ENABLED is false or credentials missing)`);
     const updated = await prisma.blockchainWorkflowEvent.update({
       where: { id: dbRecord.id },
@@ -89,7 +86,7 @@ export async function commitWorkflowEvent(input: WorkflowEventInput): Promise<{
   }
 
   try {
-    // Submit transaction to Algorand Testnet with the proof in the note field
+    // Submit a real, confirmed Algorand testnet transaction with the proof in the note field
     const noteData = {
       v: 1,
       event: input.eventType,
@@ -97,15 +94,10 @@ export async function commitWorkflowEvent(input: WorkflowEventInput): Promise<{
       task: input.taskId || "",
       hash: payloadHash,
     };
-    
-    // Create standard Algorand transaction hash (0x followed by 64 hex digits equivalent for testnet notes)
-    const randomHex = Array.from({ length: 64 }, () =>
-      Math.floor(Math.random() * 16).toString(16)
-    ).join("");
-    
-    const txId = `algorand_trust_tx_${randomHex.substring(0, 16)}`;
 
-    console.log(`[Algorand Trust] Anchoring event ${input.eventType} on-chain. Payload Hash: ${payloadHash}. TxId: ${txId}`);
+    const { txId } = await submitAnchorTransaction(noteData);
+
+    console.log(`[Algorand Trust] Anchored event ${input.eventType} on-chain. Payload Hash: ${payloadHash}. TxId: ${txId}`);
 
     // Update database record to CONFIRMED
     const updated = await prisma.blockchainWorkflowEvent.update({

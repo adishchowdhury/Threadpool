@@ -1,6 +1,6 @@
-import { generateObject } from "ai";
 import { qaVerdictSchema, type QaVerdict } from "@/lib/manager/schemas";
-import { geminiModel, isGeminiConfigured } from "@/lib/manager/gemini";
+import { isGeminiConfigured } from "@/lib/manager/gemini";
+import { generateStructured } from "@/lib/manager/structuredGenerate";
 
 // Deterministic rubric — always runs, independent of any LLM.
 function rubricCheck(output: string): { passed: boolean; reason: string | null } {
@@ -40,8 +40,7 @@ export async function verifySubtaskOutput(params: {
   }
 
   try {
-    const { object } = await generateObject({
-      model: geminiModel(),
+    const object = await generateStructured({
       schema: qaVerdictSchema,
       prompt: `You are Momentum's independent QA agent, separate from the worker that produced this output.
 Judge whether the following output adequately fulfills its instruction. Score 0-100.

@@ -55,3 +55,19 @@ export interface CentralLedgerRecord {
   fromWallet: { id: string; type: string };
   toWallet: { id: string; type: string };
 }
+
+export interface AlgorandLedgerTransactionRecord {
+  id: string;
+  taskId: string | null;
+  fromWalletId: string;
+  toWalletId: string;
+  fromAddress: string;
+  toAddress: string;
+  amount: number;
+  purpose: string;
+  type: string;
+  txId: string;
+  network: string;
+  status: string;
+  createdAt: string;
+}

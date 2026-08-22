@@ -2,8 +2,68 @@ import { prisma } from "@/lib/prisma";
 import { writeLedgerPair } from "@/lib/economy/ledger";
 import { evaluateTransaction, isSevereViolation } from "@/lib/economy/circuitBreaker";
 import { managerWalletId, escrowWalletId } from "@/lib/economy/wallets";
+import { generateMockAlgorandAddress } from "@/lib/blockchain/algorand";
+import * as algo from "@/lib/blockchain/algorand";
 import { emitEvent } from "@/lib/events/emit";
-import type { Prisma } from "@/app/generated/prisma/client";
+import type { Prisma, TxType } from "@/app/generated/prisma/client";
+
+// Mirrors a just-written internal ledger transfer onto Algorand testnet so
+// every wallet-to-wallet payment (escrow lock, agent payout, refund) has a
+// corresponding on-chain transaction. Never blocks or reverses the internal
+// transfer — a mirror failure is logged and swallowed, since the ledger is
+// the source of truth per CLAUDE.md.
+//
+// Deliberately called with the plain `prisma` client AFTER the enclosing
+// db.$transaction has committed, never with its TransactionClient: a real
+// on-chain submission waits several seconds for confirmation, which would
+// hold the financial transaction's row locks open for far too long.
+async function mirrorLedgerToAlgorand(
+  db: Prisma.TransactionClient,
+  params: {
+    taskId: string;
+    centralLedgerId: string;
+    fromWalletId: string;
+    toWalletId: string;
+    amount: number;
+    purpose: string;
+    type: TxType;
+  },
+) {
+  try {
+    const [fromWallet, toWallet] = await Promise.all([
+      db.wallet.findUniqueOrThrow({ where: { id: params.fromWalletId } }),
+      db.wallet.findUniqueOrThrow({ where: { id: params.toWalletId } }),
+    ]);
+    const fromAddress = fromWallet.algorandAddress ?? generateMockAlgorandAddress(params.fromWalletId);
+    const toAddress = toWallet.algorandAddress ?? generateMockAlgorandAddress(params.toWalletId);
+
+    const mirrored = await algo.mirrorTransaction({
+      fromAddress,
+      toAddress,
+      amountMicroAlgos: params.amount,
+      purpose: params.purpose,
+    });
+
+    await db.algorandLedgerTransaction.create({
+      data: {
+        taskId: params.taskId,
+        centralLedgerId: params.centralLedgerId,
+        fromWalletId: params.fromWalletId,
+        toWalletId: params.toWalletId,
+        fromAddress,
+        toAddress,
+        amount: params.amount,
+        purpose: params.purpose,
+        type: params.type,
+        txId: mirrored.txId,
+        network: mirrored.network,
+        status: mirrored.status,
+      },
+    });
+  } catch (err) {
+    console.error("[Algorand Mirror] failed to mirror ledger transaction", err);
+  }
+}
 
 async function getOrCreateCentralEscrow(db: Prisma.TransactionClient, taskId: string) {
   const existing = await db.centralEscrow.findUnique({ where: { taskId } });
@@ -128,7 +188,7 @@ export async function lockAgentEscrow(params: {
       },
     });
 
-    await writeLedgerPair(db, {
+    const { central: lockLedger } = await writeLedgerPair(db, {
       taskId: params.taskId,
       agentId: params.agentId,
       subtaskId: params.subtaskId,
@@ -148,7 +208,20 @@ export async function lockAgentEscrow(params: {
       payload: { agentId: params.agentId, subtaskId: params.subtaskId, amount: params.amount },
     });
 
-    return { blocked: false as const, agentEscrow };
+    return { blocked: false as const, agentEscrow, lockLedgerId: lockLedger.id };
+  }).then(async (result) => {
+    if (!result.blocked) {
+      await mirrorLedgerToAlgorand(prisma, {
+        taskId: params.taskId,
+        centralLedgerId: result.lockLedgerId,
+        fromWalletId: managerWalletId(),
+        toWalletId: escrowWalletId(),
+        amount: params.amount,
+        purpose: params.purpose,
+        type: "LOCK",
+      });
+    }
+    return result;
   });
 }
 
@@ -170,7 +243,7 @@ export async function releaseAgentEscrow(params: {
     const agentWallet = await db.wallet.upsert({
       where: { agentId: agent.id },
       update: {},
-      create: { type: "AGENT", agentId: agent.id, balance: 0 },
+      create: { type: "AGENT", agentId: agent.id, balance: 0, algorandAddress: generateMockAlgorandAddress(`agent:${agent.id}`) },
     });
 
     await emitEvent(db, {
@@ -233,7 +306,7 @@ export async function releaseAgentEscrow(params: {
       data: { totalLocked: { decrement: agentEscrow.amount }, totalReleased: { increment: params.requestedAmount } },
     });
 
-    await writeLedgerPair(db, {
+    const { central: payoutLedger } = await writeLedgerPair(db, {
       taskId: task.id,
       agentId: agent.id,
       subtaskId: agentEscrow.subtaskId,
@@ -253,7 +326,20 @@ export async function releaseAgentEscrow(params: {
       payload: { agentId: agent.id, amount: params.requestedAmount, subtaskId: agentEscrow.subtaskId },
     });
 
-    return { blocked: false as const, agentWallet };
+    return { blocked: false as const, agentWallet, payoutLedgerId: payoutLedger.id, taskId: task.id };
+  }).then(async (result) => {
+    if (!result.blocked) {
+      await mirrorLedgerToAlgorand(prisma, {
+        taskId: result.taskId,
+        centralLedgerId: result.payoutLedgerId,
+        fromWalletId: escrowWalletId(),
+        toWalletId: result.agentWallet.id,
+        amount: params.requestedAmount,
+        purpose: params.purpose,
+        type: "PAYOUT",
+      });
+    }
+    return result;
   });
 }
 
@@ -278,7 +364,7 @@ export async function refundAgentEscrow(params: { agentEscrowId: string; reason:
       data: { totalLocked: { decrement: agentEscrow.amount }, totalRefunded: { increment: agentEscrow.amount } },
     });
 
-    await writeLedgerPair(db, {
+    const { central: refundLedger } = await writeLedgerPair(db, {
       taskId: agentEscrow.taskId,
       agentId: agentEscrow.agentId,
       subtaskId: agentEscrow.subtaskId,
@@ -299,6 +385,19 @@ export async function refundAgentEscrow(params: { agentEscrowId: string; reason:
       payload: { agentId: agentEscrow.agentId, subtaskId: agentEscrow.subtaskId, amount: agentEscrow.amount, reason: params.reason },
     });
 
-    return { refunded: true as const };
+    return { refunded: true as const, refundLedgerId: refundLedger.id, taskId: agentEscrow.taskId, amount: agentEscrow.amount };
+  }).then(async (result) => {
+    if (result.refunded) {
+      await mirrorLedgerToAlgorand(prisma, {
+        taskId: result.taskId,
+        centralLedgerId: result.refundLedgerId,
+        fromWalletId: escrowWalletId(),
+        toWalletId: managerWalletId(),
+        amount: result.amount,
+        purpose: params.reason,
+        type: "REFUND",
+      });
+    }
+    return result;
   });
 }

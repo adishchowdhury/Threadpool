@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { generateMockAlgorandAddress } from "@/lib/blockchain/algorand";
 
 // Two singleton system wallets:
 //  - MANAGER: funds every task's budget.
@@ -15,12 +16,22 @@ export async function ensureSystemWallets() {
   await prisma.wallet.upsert({
     where: { id: MANAGER_WALLET_ID },
     update: {},
-    create: { id: MANAGER_WALLET_ID, type: "MANAGER", balance: MANAGER_STARTING_BALANCE },
+    create: {
+      id: MANAGER_WALLET_ID,
+      type: "MANAGER",
+      balance: MANAGER_STARTING_BALANCE,
+      algorandAddress: generateMockAlgorandAddress(MANAGER_WALLET_ID),
+    },
   });
   await prisma.wallet.upsert({
     where: { id: ESCROW_WALLET_ID },
     update: {},
-    create: { id: ESCROW_WALLET_ID, type: "USER", balance: 0 },
+    create: {
+      id: ESCROW_WALLET_ID,
+      type: "USER",
+      balance: 0,
+      algorandAddress: generateMockAlgorandAddress(ESCROW_WALLET_ID),
+    },
   });
 }
 
@@ -36,6 +47,6 @@ export async function ensureAgentWallet(agentId: string) {
   const existing = await prisma.wallet.findUnique({ where: { agentId } });
   if (existing) return existing;
   return prisma.wallet.create({
-    data: { type: "AGENT", agentId, balance: 0 },
+    data: { type: "AGENT", agentId, balance: 0, algorandAddress: generateMockAlgorandAddress(`agent:${agentId}`) },
   });
 }

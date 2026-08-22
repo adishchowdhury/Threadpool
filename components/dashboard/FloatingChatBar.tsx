@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowUp, Loader2, Mic, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuthUser } from "@/lib/use-auth-user";
+import { firebaseConfigured } from "@/lib/firebase";
+import { LoginDialog } from "@/components/auth/login-dialog";
 
 const DEMO_PROMPT =
   "Analyze the fintech startup market, identify promising segments, estimate key financial metrics, and produce an investment-style report.";
@@ -47,6 +50,10 @@ export function FloatingChatBar({
   const [qualityThreshold, setQualityThreshold] = useState(70);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+
+  const { user, loading: authLoading } = useAuthUser();
+  const requiresAuth = firebaseConfigured && !authLoading && !user;
 
   const [isRecording, setIsRecording] = useState(false);
   const speechSupported = useMemo(() => getSpeechRecognitionCtor() !== null, []);
@@ -191,8 +198,12 @@ export function FloatingChatBar({
 
   useEffect(() => () => teardownRecording(), [teardownRecording]);
 
-  async function submit() {
+  async function submit(skipAuthCheck = false) {
     if (!prompt.trim()) return;
+    if (!skipAuthCheck && requiresAuth) {
+      setLoginOpen(true);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -222,6 +233,8 @@ export function FloatingChatBar({
   }
 
   return (
+    <>
+    <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSuccess={() => submit(true)} />
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 px-4 pb-5">
       <div className="pointer-events-auto w-full max-w-2xl">
         {error && (
@@ -375,7 +388,7 @@ export function FloatingChatBar({
                 ) : (
                   <Button
                     size="icon"
-                    onClick={submit}
+                    onClick={() => submit()}
                     disabled={disabled || submitting || !prompt.trim()}
                     className="size-8 shrink-0 rounded-full bg-accent-strong text-accent-strong-foreground transition-transform hover:opacity-90 active:scale-90"
                     aria-label="Run task"
@@ -401,5 +414,6 @@ export function FloatingChatBar({
         )}
       </div>
     </div>
+    </>
   );
 }

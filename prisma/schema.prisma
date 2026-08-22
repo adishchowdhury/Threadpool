@@ -87,13 +87,14 @@ enum TxStatus {
 // ─────────────────────────────────────────────────────────────────────────
 
 model Wallet {
-  id        String     @id @default(cuid())
-  type      WalletType
-  agentId   String?    @unique
-  agent     Agent?     @relation(fields: [agentId], references: [id])
-  balance   Int        @default(0)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id              String     @id @default(cuid())
+  type            WalletType
+  agentId         String?    @unique
+  agent           Agent?     @relation(fields: [agentId], references: [id])
+  balance         Int        @default(0)
+  algorandAddress String?    @unique
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
 
   centralLedgerFrom CentralLedger[] @relation("CentralLedgerFrom")
   centralLedgerTo   CentralLedger[] @relation("CentralLedgerTo")
@@ -160,6 +161,7 @@ model Task {
   events         Event[]
   performances   AgentPerformance[]
   securityEvents SecurityEvent[]
+  algorandTransactions AlgorandLedgerTransaction[]
 
   @@index([userId])
 }
@@ -251,7 +253,8 @@ model CentralLedger {
   reason        String?
   timestamp     DateTime     @default(now())
 
-  agentLedger AgentLedger[]
+  agentLedger        AgentLedger[]
+  algorandTransaction AlgorandLedgerTransaction?
 }
 
 model AgentLedger {
@@ -369,6 +372,30 @@ model BlockchainTransaction {
   status          String
   confirmedAt     DateTime?
   rawMetadata     String?   // JSON-encoded optional metadata
+}
+
+// Mirrors internal virtual-token wallet-to-wallet transfers (escrow lock,
+// payout to a worker agent, refund) onto the Algorand testnet so every
+// agent-to-agent payment has a corresponding on-chain transaction the judge
+// can inspect. The internal ledger (CentralLedger/AgentLedger) stays the
+// source of truth; this table is a settlement mirror, not authoritative.
+model AlgorandLedgerTransaction {
+  id              String         @id @default(cuid())
+  taskId          String?
+  task            Task?          @relation(fields: [taskId], references: [id])
+  centralLedgerId String?        @unique
+  centralLedger   CentralLedger? @relation(fields: [centralLedgerId], references: [id])
+  fromWalletId    String
+  toWalletId      String
+  fromAddress     String
+  toAddress       String
+  amount          Int
+  purpose         String
+  type            TxType
+  txId            String         @unique
+  network         String
+  status          String         // CONFIRMED | FAILED
+  createdAt       DateTime       @default(now())
 }
 
 model BlockchainWorkflowEvent {
