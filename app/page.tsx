@@ -1,7 +1,5 @@
-export default function Home() {
-  return (
-    <div>
+import { Dashboard } from "@/components/dashboard/Dashboard";
 
-    </div>
-  );
+export default function Home() {
+  return <Dashboard />;
 }

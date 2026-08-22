@@ -1,0 +1,318 @@
+// Momentum — Agentic Micro-Economy schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// WALLETS
+// ─────────────────────────────────────────────────────────────────────────
+
+enum WalletType {
+  MANAGER
+  AGENT
+  USER
+}
+
+model Wallet {
+  id        String     @id @default(cuid())
+  type      WalletType
+  agentId   String?    @unique
+  agent     Agent?     @relation(fields: [agentId], references: [id])
+  balance   Int        @default(0)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  centralLedgerFrom CentralLedger[] @relation("CentralLedgerFrom")
+  centralLedgerTo   CentralLedger[] @relation("CentralLedgerTo")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AGENT REGISTRY
+// ─────────────────────────────────────────────────────────────────────────
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  REVOKED
+}
+
+model Agent {
+  id           String      @id @default(cuid())
+  name         String
+  capabilities String // JSON-encoded string[]
+  price        Int
+  endpoint     String?
+  status       AgentStatus @default(ACTIVE)
+  isSeeded     Boolean     @default(true)
+
+  // cached reputation stats, recomputed by ReputationService
+  totalJobs      Int   @default(0)
+  successCount   Int   @default(0)
+  successRate    Float @default(0)
+  avgQuality     Float @default(0)
+  avgLatencyMs   Float @default(0)
+  avgCost        Float @default(0)
+  reputation     Float @default(50)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wallet          Wallet?
+  bids            Bid[]
+  subtasks        Subtask[]
+  agentEscrows    AgentEscrow[]
+  agentLedger     AgentLedger[]
+  performances    AgentPerformance[]
+  securityEvents  SecurityEvent[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// TASKS / SUBTASKS / BIDS
+// ─────────────────────────────────────────────────────────────────────────
+
+enum TaskStatus {
+  CREATED
+  PLANNING
+  IN_PROGRESS
+  AWAITING_QA
+  COMPLETED
+  FAILED
+  CANCELLING
+  CANCELLED
+}
+
+model Task {
+  id              String     @id @default(cuid())
+  prompt          String
+  budget          Int
+  remainingBudget Int
+  qualityThreshold Int       @default(70)
+  deadline        DateTime?
+  status          TaskStatus @default(CREATED)
+  managerId       String     @default("manager-agent")
+  finalOutput     String? // JSON-encoded final output payload
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  subtasks       Subtask[]
+  centralEscrow  CentralEscrow?
+  centralLedger  CentralLedger[]
+  agentEscrows   AgentEscrow[]
+  agentLedger    AgentLedger[]
+  events         Event[]
+  performances   AgentPerformance[]
+  securityEvents SecurityEvent[]
+}
+
+enum SubtaskStatus {
+  PENDING
+  BIDDING
+  ASSIGNED
+  EXECUTING
+  AWAITING_QA
+  DONE
+  FAILED
+}
+
+model Subtask {
+  id                 String        @id @default(cuid())
+  taskId             String
+  task               Task          @relation(fields: [taskId], references: [id])
+  type               String
+  requiredCapability String
+  status             SubtaskStatus @default(PENDING)
+  sequence           Int           @default(0)
+  dependsOn          String        @default("[]") // JSON-encoded string[] of subtask ids
+  assignedAgentId    String?
+  assignedAgent      Agent?        @relation(fields: [assignedAgentId], references: [id])
+  attemptCount        Int          @default(0)
+  maxAttempts         Int          @default(2)
+  output              String? // JSON-encoded worker output
+  qaScore             Int?
+  qaReason            String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  bids         Bid[]
+  agentEscrows AgentEscrow[]
+  agentLedger  AgentLedger[]
+  performances AgentPerformance[]
+}
+
+model Bid {
+  id          String   @id @default(cuid())
+  subtaskId   String
+  subtask     Subtask  @relation(fields: [subtaskId], references: [id])
+  agentId     String
+  agent       Agent    @relation(fields: [agentId], references: [id])
+  amount      Int
+  proposal    String
+  submittedAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ECONOMY — two-tier escrow + ledger
+//   CentralEscrow: one per Task — the whole-task budget pool.
+//   AgentEscrow:   one per Subtask/agent assignment — sub-allocated from the pool.
+//   CentralLedger: global, authoritative audit trail of every fund movement.
+//   AgentLedger:   sub-ledger scoped to one manager<->agent relationship.
+// ─────────────────────────────────────────────────────────────────────────
+
+enum EscrowStatus {
+  LOCKED
+  RELEASED
+  REFUNDED
+}
+
+model CentralEscrow {
+  id            String       @id @default(cuid())
+  taskId        String       @unique
+  task          Task         @relation(fields: [taskId], references: [id])
+  totalLocked   Int          @default(0)
+  totalReleased Int          @default(0)
+  totalRefunded Int          @default(0)
+  status        String       @default("ACTIVE") // ACTIVE | CLOSED
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model AgentEscrow {
+  id        String       @id @default(cuid())
+  taskId    String
+  task      Task         @relation(fields: [taskId], references: [id])
+  subtaskId String
+  subtask   Subtask      @relation(fields: [subtaskId], references: [id])
+  agentId   String
+  agent     Agent        @relation(fields: [agentId], references: [id])
+  amount    Int
+  status    EscrowStatus @default(LOCKED)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  centralLedger CentralLedger[]
+  agentLedger   AgentLedger[]
+}
+
+enum TxType {
+  LOCK
+  PAYOUT
+  REFUND
+  BLOCKED_ATTEMPT
+}
+
+enum TxStatus {
+  APPROVED
+  BLOCKED
+}
+
+model CentralLedger {
+  id            String   @id @default(cuid())
+  taskId        String
+  task          Task     @relation(fields: [taskId], references: [id])
+  agentEscrowId String?
+  agentEscrow   AgentEscrow? @relation(fields: [agentEscrowId], references: [id])
+  fromWalletId  String
+  fromWallet    Wallet   @relation("CentralLedgerFrom", fields: [fromWalletId], references: [id])
+  toWalletId    String
+  toWallet      Wallet   @relation("CentralLedgerTo", fields: [toWalletId], references: [id])
+  amount        Int
+  currency      String   @default("VIRTUAL_TOKEN")
+  purpose       String
+  type          TxType
+  status        TxStatus
+  reason        String?
+  timestamp     DateTime @default(now())
+
+  agentLedger AgentLedger[]
+}
+
+model AgentLedger {
+  id              String   @id @default(cuid())
+  agentId         String
+  agent           Agent    @relation(fields: [agentId], references: [id])
+  taskId          String
+  task            Task     @relation(fields: [taskId], references: [id])
+  subtaskId       String?
+  subtask         Subtask? @relation(fields: [subtaskId], references: [id])
+  agentEscrowId   String?
+  agentEscrow     AgentEscrow? @relation(fields: [agentEscrowId], references: [id])
+  centralLedgerId String?
+  centralLedger   CentralLedger? @relation(fields: [centralLedgerId], references: [id])
+  direction       String // CREDIT | DEBIT | BLOCKED
+  amount          Int
+  purpose         String
+  type            TxType
+  status          TxStatus
+  reason          String?
+  timestamp       DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// PERFORMANCE / REPUTATION / WORKFLOW MEMORY
+// ─────────────────────────────────────────────────────────────────────────
+
+model AgentPerformance {
+  id               String   @id @default(cuid())
+  agentId          String
+  agent            Agent    @relation(fields: [agentId], references: [id])
+  taskId           String
+  task             Task     @relation(fields: [taskId], references: [id])
+  subtaskId        String
+  subtask          Subtask  @relation(fields: [subtaskId], references: [id])
+  taskType         String
+  capabilities     String // JSON-encoded string[]
+  expectedCost     Int
+  actualCost       Int
+  expectedLatencyMs Int
+  actualLatencyMs   Int
+  qaScore          Int
+  success          Boolean
+  createdAt        DateTime @default(now())
+}
+
+model WorkflowMemory {
+  id           String   @id @default(cuid())
+  taskType     String
+  taskFeatures String // JSON-encoded feature vector/keywords
+  subtasks     String // JSON-encoded subtask type list
+  agentsUsed   String // JSON-encoded agent ids
+  sequence     String // JSON-encoded execution order
+  dependencies String // JSON-encoded dependency map
+  cost         Int
+  latencyMs    Int
+  quality      Float
+  success      Boolean
+  createdAt    DateTime @default(now())
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// EVENTS / SECURITY
+// ─────────────────────────────────────────────────────────────────────────
+
+model Event {
+  id        String   @id @default(cuid())
+  taskId    String?
+  task      Task?    @relation(fields: [taskId], references: [id])
+  actor     String // manager | <agentId> | qa | circuit_breaker | system
+  eventType String
+  payload   String // JSON-encoded
+  createdAt DateTime @default(now())
+}
+
+model SecurityEvent {
+  id        String   @id @default(cuid())
+  taskId    String?
+  task      Task?    @relation(fields: [taskId], references: [id])
+  agentId   String?
+  agent     Agent?   @relation(fields: [agentId], references: [id])
+  type      String
+  reason    String
+  payload   String // JSON-encoded
+  createdAt DateTime @default(now())
+}
