@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+const errs = [];
+page.on('pageerror', err => errs.push(err.message));
+await page.goto('http://localhost:3000/', { waitUntil: 'networkidle', timeout: 30000 });
+await page.waitForTimeout(6000);
+await page.screenshot({ path: 'e:/project-innofusion3.0/scratch_shot/redesign2.png' });
+console.log('ERR', JSON.stringify(errs));
+await browser.close();

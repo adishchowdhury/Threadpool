@@ -163,3 +163,23 @@
   height: calc(4px + var(--level) * 24px);
   transition: height 75ms ease-out;
 }
+
+@keyframes orbit-spin-cw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes orbit-spin-ccw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes orbit-counter-cw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes orbit-counter-ccw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
