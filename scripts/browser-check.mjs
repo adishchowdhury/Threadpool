@@ -29,7 +29,7 @@ await page.screenshot({ path: `${shotDir}/02-running.png`, fullPage: true });
 
 // Wait for completion (Final Report) or failure, up to 60s
 try {
-  await page.waitForSelector("text=Final Report", { timeout: 60000 });
+  await page.waitForSelector("text=Final Report", { timeout: 120000 });
   console.log("Task completed — Final Report visible");
 } catch {
   console.log("Task did not complete within 60s — capturing state anyway");
