@@ -348,3 +348,20 @@ model BlockchainTransaction {
   confirmedAt     DateTime?
   rawMetadata     String?   // JSON-encoded optional metadata
 }
+
+model BlockchainWorkflowEvent {
+  id                      String    @id @default(cuid())
+  workflowId              String
+  taskId                  String?
+  eventType               String    // TASK_ASSIGNED | RESULT_COMMITTED | RESULT_VERIFIED | QA_APPROVED | etc.
+  fromAgentId             String?
+  toAgentId               String?
+  payloadHash             String
+  canonicalPayloadVersion Int       @default(1)
+  network                 String
+  transactionId           String?
+  status                  String    // PENDING | SUBMITTED | CONFIRMED | FAILED | SKIPPED
+  failureReason           String?
+  createdAt               DateTime  @default(now())
+  confirmedAt             DateTime?
+}

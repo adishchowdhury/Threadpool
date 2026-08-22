@@ -9,6 +9,7 @@ import { WorkflowPanel } from "@/components/dashboard/WorkflowPanel";
 import { EconomyPanel } from "@/components/dashboard/EconomyPanel";
 import { FinalOutputPanel } from "@/components/dashboard/FinalOutputPanel";
 import { RogueDemoButton } from "@/components/dashboard/RogueDemoButton";
+import { TrustPanel } from "@/components/dashboard/TrustPanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { AgentRecord, TaskRecord, CentralLedgerRecord } from "@/lib/types";
@@ -39,6 +40,7 @@ export function Dashboard() {
   const [ledger, setLedger] = useState<CentralLedgerRecord[]>([]);
   const [paymentIntents, setPaymentIntents] = useState<any[]>([]);
   const [blockchainTransactions, setBlockchainTransactions] = useState<any[]>([]);
+  const [blockchainWorkflowEvents, setBlockchainWorkflowEvents] = useState<any[]>([]);
   const [resetting, setResetting] = useState(false);
 
   async function refreshAgents() {
@@ -68,6 +70,7 @@ export function Dashboard() {
       setLedger(data.transactions ?? []);
       setPaymentIntents(data.paymentIntents ?? []);
       setBlockchainTransactions(data.blockchainTransactions ?? []);
+      setBlockchainWorkflowEvents(data.blockchainWorkflowEvents ?? []);
     } catch {
       // non-critical panel — fail silently, the next poll will retry
     }
@@ -141,6 +144,7 @@ export function Dashboard() {
       setLedger([]);
       setPaymentIntents([]);
       setBlockchainTransactions([]);
+      setBlockchainWorkflowEvents([]);
       await refreshAgents();
     } catch {
       toast.error("Couldn't reach the server to reset the demo.");
@@ -190,6 +194,7 @@ export function Dashboard() {
 
         <div className="space-y-4">
           <EconomyPanel task={task} ledger={ledger} paymentIntents={paymentIntents} blockchainTransactions={blockchainTransactions} />
+          <TrustPanel events={blockchainWorkflowEvents} />
           <ActivityFeed events={taskEvents} />
         </div>
       </main>

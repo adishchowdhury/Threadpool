@@ -25,5 +25,15 @@ export async function GET(request: Request) {
     },
   }) : [];
 
-  return NextResponse.json({ transactions, paymentIntents, blockchainTransactions });
+  const blockchainWorkflowEvents = taskId ? await prisma.blockchainWorkflowEvent.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "asc" },
+  }) : [];
+
+  return NextResponse.json({
+    transactions,
+    paymentIntents,
+    blockchainTransactions,
+    blockchainWorkflowEvents,
+  });
 }
