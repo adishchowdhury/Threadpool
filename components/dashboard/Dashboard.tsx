@@ -1,21 +1,22 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useEventStream } from "@/lib/hooks/useEventStream";
-import { TaskForm } from "@/components/dashboard/TaskForm";
-import { AgentRegistryPanel } from "@/components/dashboard/AgentRegistryPanel";
+import { useEventStream, type MomentumEvent } from "@/lib/hooks/useEventStream";
+import { FloatingChatBar } from "@/components/dashboard/FloatingChatBar";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { WorkflowPanel } from "@/components/dashboard/WorkflowPanel";
 import { EconomyPanel } from "@/components/dashboard/EconomyPanel";
 import { FinalOutputPanel } from "@/components/dashboard/FinalOutputPanel";
 import { RogueDemoButton } from "@/components/dashboard/RogueDemoButton";
+import { ChatHistoryPanel } from "@/components/dashboard/ChatHistoryPanel";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import type { AgentRecord, TaskRecord, CentralLedgerRecord } from "@/lib/types";
-import { RotateCcw, Zap, Loader2 } from "lucide-react";
+import { FileText, History, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 const ACTIVE_STATUSES = new Set(["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA"]);
+const TERMINAL_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
 
 function useElapsedSeconds(active: boolean) {
   const [seconds, setSeconds] = useState(0);
@@ -32,12 +33,65 @@ function useElapsedSeconds(active: boolean) {
 }
 
 export function Dashboard() {
-  const { events, connected } = useEventStream();
-  const [agents, setAgents] = useState<AgentRecord[]>([]);
+  const { events } = useEventStream();
+  const [, setAgents] = useState<AgentRecord[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [task, setTask] = useState<TaskRecord | null>(null);
   const [ledger, setLedger] = useState<CentralLedgerRecord[]>([]);
+  const [historicalEvents, setHistoricalEvents] = useState<MomentumEvent[]>([]);
   const [resetting, setResetting] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(true);
+  const [economyOpen, setEconomyOpen] = useState(true);
+
+  // On narrow viewports the two side panels are full-width, so only one may
+  // be open at a time or they visually stack on top of each other. On wider
+  // viewports both can stay open simultaneously as originally designed.
+  function handleActivityOpenChange(next: boolean) {
+    setActivityOpen(next);
+    if (next && typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
+      setEconomyOpen(false);
+    }
+  }
+  function handleEconomyOpenChange(next: boolean) {
+    setEconomyOpen(next);
+    if (next && typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
+      setActivityOpen(false);
+    }
+  }
+
+  // Both panels default to open (desktop has room for both side by side),
+  // but on a narrow viewport they'd fully overlap — collapse Economy on
+  // mount there so the initial view isn't obscured.
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 639px)").matches) {
+      setEconomyOpen(false);
+    }
+  }, []);
+
+  // Block native page-zoom everywhere (not just over the canvas): Safari's
+  // trackpad pinch fires non-standard gesture events instead of wheel, and
+  // ctrl+wheel (trackpad pinch on Chrome/Firefox) can also reach the page
+  // outside the canvas, over the side panels or chat bar.
+  useEffect(() => {
+    function preventGesture(e: Event) {
+      e.preventDefault();
+    }
+    function preventCtrlWheel(e: WheelEvent) {
+      if (e.ctrlKey) e.preventDefault();
+    }
+    document.addEventListener("gesturestart", preventGesture, { passive: false });
+    document.addEventListener("gesturechange", preventGesture, { passive: false });
+    document.addEventListener("gestureend", preventGesture, { passive: false });
+    document.addEventListener("wheel", preventCtrlWheel, { passive: false });
+    return () => {
+      document.removeEventListener("gesturestart", preventGesture);
+      document.removeEventListener("gesturechange", preventGesture);
+      document.removeEventListener("gestureend", preventGesture);
+      document.removeEventListener("wheel", preventCtrlWheel);
+    };
+  }, []);
 
   async function refreshAgents() {
     try {
@@ -69,6 +123,23 @@ export function Dashboard() {
     }
   }
 
+  // Backfills the activity feed with a task's persisted events — needed when
+  // reopening a past chat, since the live SSE buffer only holds events seen
+  // during the current browser session.
+  async function refreshHistoricalEvents(id: string) {
+    try {
+      const res = await fetch(`/api/tasks/${id}/events`);
+      const data = await res.json();
+      setHistoricalEvents(data.events ?? []);
+    } catch {
+      // non-critical — the live stream still covers anything from here on
+    }
+  }
+
+  function handleSelectFromHistory(id: string) {
+    setTaskId(id);
+  }
+
   useEffect(() => {
     refreshAgents();
   }, []);
@@ -89,28 +160,26 @@ export function Dashboard() {
     if (!taskId) return;
     refreshTask(taskId);
     refreshLedger(taskId);
+    refreshHistoricalEvents(taskId);
     const interval = setInterval(() => {
       refreshTask(taskId);
     }, 3000);
     return () => clearInterval(interval);
   }, [taskId]);
 
-  const taskEvents = useMemo(() => events.filter((e) => e.taskId === taskId), [events, taskId]);
-
-  const activeAgentIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const e of taskEvents) {
-      if (["BID_RECEIVED", "AGENT_SELECTED", "WORK_STARTED"].includes(e.eventType)) {
-        const p = e.payload as { agentId?: string };
-        if (p?.agentId) ids.add(p.agentId);
-      }
+  useEffect(() => {
+    if (task && TERMINAL_STATUSES.has(task.status) && task.finalOutput) {
+      setReportOpen(true);
     }
-    return ids;
-  }, [taskEvents]);
+  }, [task?.status, task?.finalOutput]);
 
-  const selectedAgentIds = useMemo(() => {
-    return new Set((task?.subtasks ?? []).map((s) => s.assignedAgentId).filter((x): x is string => Boolean(x)));
-  }, [task]);
+  const taskEvents = useMemo(() => {
+    const live = events.filter((e) => e.taskId === taskId);
+    const merged = [...historicalEvents, ...live];
+    const seen = new Set<string>();
+    const deduped = merged.filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)));
+    return deduped.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }, [events, historicalEvents, taskId]);
 
   const isRunning = task ? ACTIVE_STATUSES.has(task.status) : false;
   const elapsedSeconds = useElapsedSeconds(isRunning);
@@ -135,6 +204,8 @@ export function Dashboard() {
       setTaskId(null);
       setTask(null);
       setLedger([]);
+      setHistoricalEvents([]);
+      setReportOpen(false);
       await refreshAgents();
     } catch {
       toast.error("Couldn't reach the server to reset the demo.");
@@ -144,49 +215,38 @@ export function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Zap className="size-5 text-primary" />
-          <h1 className="text-lg font-semibold tracking-tight">Momentum — AI Workforce Command Center</h1>
-          <Badge variant={connected ? "secondary" : "outline"} className="ml-2 text-[10px]">
-            {connected ? "live" : "connecting..."}
-          </Badge>
-          {isRunning && task && (
-            <Badge variant="outline" className="ml-1 gap-1 text-[10px]">
-              <Loader2 className="size-3 animate-spin" />
-              {task.status} · {elapsedSeconds}s
-            </Badge>
-          )}
-        </div>
-        <Button variant="outline" size="sm" onClick={handleReset} disabled={resetting}>
-          <RotateCcw className="size-3.5" /> Reset Demo
-        </Button>
-      </header>
+    <div className="fixed inset-0 bg-canvas">
+      {/* Full-screen workflow canvas */}
+      <div className="absolute inset-0">
+        <WorkflowPanel subtasks={task?.subtasks ?? []} isPlanning={task?.status === "CREATED" || task?.status === "PLANNING"} />
+      </div>
 
-      <main className="grid grid-cols-1 lg:grid-cols-[320px_1fr_360px] gap-4 p-4">
-        <div className="space-y-4">
-          <TaskForm onCreated={setTaskId} disabled={isRunning} />
-          {isRunning && (
-            <Button variant="outline" className="w-full" onClick={handleCancel}>
-              <Loader2 className="size-3.5 animate-spin" />
-              Cancel Running Task ({elapsedSeconds}s)
+      {/* Floating top bar */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-end gap-3 p-3 sm:p-4">
+        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5 rounded-md border border-panel-border bg-panel p-1 shadow-lg backdrop-blur-xl transition-colors">
+          {task?.finalOutput && (
+            <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)} className="text-panel-foreground hover:bg-panel-elevated">
+              <FileText className="size-3.5" /> <span className="hidden sm:inline">Report</span>
             </Button>
           )}
+          <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)} className="text-panel-foreground hover:bg-panel-elevated">
+            <History className="size-3.5" /> <span className="hidden sm:inline">History</span>
+          </Button>
           <RogueDemoButton key={taskId ?? "none"} taskId={taskId} />
-          <AgentRegistryPanel agents={agents} activeAgentIds={activeAgentIds} selectedAgentIds={selectedAgentIds} />
+          <Button variant="ghost" size="sm" onClick={handleReset} disabled={resetting} className="text-panel-foreground hover:bg-panel-elevated">
+            <RotateCcw className="size-3.5" /> <span className="hidden sm:inline">Reset</span>
+          </Button>
+          <ThemeToggle />
         </div>
+      </header>
 
-        <div className="space-y-4">
-          <WorkflowPanel subtasks={task?.subtasks ?? []} isPlanning={task?.status === "CREATED" || task?.status === "PLANNING"} />
-          <FinalOutputPanel task={task} />
-        </div>
+      <ActivityFeed events={taskEvents} open={activityOpen} onOpenChange={handleActivityOpenChange} />
+      <EconomyPanel task={task} ledger={ledger} open={economyOpen} onOpenChange={handleEconomyOpenChange} />
 
-        <div className="space-y-4">
-          <EconomyPanel task={task} ledger={ledger} />
-          <ActivityFeed events={taskEvents} />
-        </div>
-      </main>
+      <FloatingChatBar onCreated={setTaskId} disabled={isRunning} isRunning={isRunning} elapsedSeconds={elapsedSeconds} onCancel={handleCancel} />
+
+      <FinalOutputPanel task={task} open={reportOpen} onOpenChange={setReportOpen} />
+      <ChatHistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} activeTaskId={taskId} onSelect={handleSelectFromHistory} />
     </div>
   );
 }

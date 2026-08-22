@@ -1,9 +1,12 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { MomentumEvent } from "@/lib/hooks/useEventStream";
+import { useDraggable } from "@/lib/hooks/useDraggable";
+import { ChevronLeft, ChevronRight, GripVertical, Radio } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const SECURITY_EVENTS = new Set(["TRANSACTION_BLOCKED", "WALLET_REVOKED"]);
 const SUCCESS_EVENTS = new Set(["QA_PASSED", "TRANSACTION_APPROVED", "TASK_COMPLETED"]);
@@ -63,46 +66,100 @@ function eventLine(e: MomentumEvent): string {
   }
 }
 
-export function ActivityFeed({ events }: { events: MomentumEvent[] }) {
+export function ActivityFeed({
+  events,
+  open,
+  onOpenChange,
+}: {
+  events: MomentumEvent[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { containerRef, style, isDragging, handleProps } = useDraggable();
+
+  if (!open) {
+    return (
+      <div className="pointer-events-auto absolute left-3 top-16 z-20 sm:left-4 sm:top-20">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="group size-10 rounded-full border border-panel-border bg-panel text-panel-muted shadow-lg backdrop-blur-xl transition-all duration-200 ease-out hover:border-panel-border hover:bg-panel-elevated hover:text-panel-foreground hover:shadow-xl active:scale-95"
+          onClick={() => onOpenChange(true)}
+          aria-label="Expand live activity"
+          title="Expand live activity"
+        >
+          <Radio className="absolute size-3.5 opacity-100 transition-opacity duration-150 group-hover:opacity-0" />
+          <ChevronRight className="absolute size-4 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <Card className="flex flex-col h-full">
-      <CardHeader>
-        <CardTitle className="text-base">Live Activity</CardTitle>
-      </CardHeader>
-      <CardContent className="flex-1 min-h-0">
-        <ScrollArea className="h-[420px] pr-2">
-          <div className="space-y-1.5">
-            {events.length === 0 && <p className="text-sm text-muted-foreground">Waiting for events...</p>}
-            {events.map((e) => {
+    <div
+      ref={containerRef}
+      style={style}
+      className={cn(
+        "pointer-events-auto absolute left-3 top-16 bottom-36 z-20 flex w-[calc(100vw-5rem)] flex-col overflow-hidden rounded-lg border border-panel-border bg-panel text-panel-foreground shadow-xl backdrop-blur-xl sm:left-4 sm:top-20 sm:bottom-20 sm:w-72",
+        !isDragging && "animate-in fade-in slide-in-from-left-2 duration-200 ease-out",
+      )}
+    >
+      <div
+        {...handleProps}
+        className="flex select-none items-center justify-between gap-2 border-b border-panel-border px-3 py-2"
+      >
+        <div className="flex items-center gap-1.5 text-sm font-medium tracking-tight">
+          <GripVertical className="size-3.5 text-panel-muted/60" />
+          <Radio className="size-3.5 text-panel-muted" />
+          Live Activity
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-6 rounded-full text-panel-muted transition-colors hover:bg-panel-elevated hover:text-panel-foreground"
+          onClick={() => onOpenChange(false)}
+          aria-label="Collapse live activity"
+          title="Collapse live activity"
+        >
+          <ChevronLeft className="size-4" />
+        </Button>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="animate-in fade-in space-y-1.5 p-2.5 duration-300">
+          {events.length === 0 && <p className="text-xs text-panel-muted">Waiting for events...</p>}
+          {events
+            .slice()
+            .reverse()
+            .map((e) => {
               const isSecurity = SECURITY_EVENTS.has(e.eventType);
               const isSuccess = SUCCESS_EVENTS.has(e.eventType);
               const isFail = FAIL_EVENTS.has(e.eventType);
               return (
                 <div
                   key={e.id}
-                  className={`rounded-md border px-2.5 py-1.5 text-xs font-mono leading-relaxed ${
+                  className={cn(
+                    "animate-in fade-in slide-in-from-top-1 rounded-sm border px-2.5 py-1.5 font-mono text-[11px] leading-relaxed duration-300",
                     isSecurity
                       ? "border-destructive/50 bg-destructive/10 text-destructive"
                       : isSuccess
-                        ? "border-emerald-500/30 bg-emerald-500/5"
+                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-100"
                         : isFail
-                          ? "border-amber-500/30 bg-amber-500/5"
-                          : "border-border/60"
-                  }`}
+                          ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-100"
+                          : "border-panel-border bg-panel-elevated text-panel-foreground",
+                  )}
                 >
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                  <div className="mb-0.5 flex items-center gap-1.5">
+                    <Badge variant="secondary" className="rounded-sm px-1 py-0 text-[9px]">
                       {e.actor}
                     </Badge>
-                    <span className="text-muted-foreground">{new Date(e.createdAt).toLocaleTimeString()}</span>
+                    <span className="text-panel-muted">{new Date(e.createdAt).toLocaleTimeString()}</span>
                   </div>
                   {eventLine(e)}
                 </div>
               );
             })}
-          </div>
-        </ScrollArea>
-      </CardContent>
-    </Card>
+        </div>
+      </ScrollArea>
+    </div>
   );
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { emitEvent } from "@/lib/events/emit";
 import { runTask } from "@/lib/manager/orchestrator";
+import { ensureDemoUser, DEMO_USER_ID } from "@/lib/db/demoUser";
 
 const createTaskSchema = z.object({
   prompt: z.string().min(3).max(2000),
@@ -12,7 +13,12 @@ const createTaskSchema = z.object({
 });
 
 export async function GET() {
-  const tasks = await prisma.task.findMany({ orderBy: { createdAt: "desc" }, take: 50 });
+  // Chat history — scoped to the demo user until real accounts exist.
+  const tasks = await prisma.task.findMany({
+    where: { userId: DEMO_USER_ID },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
   return NextResponse.json({ tasks });
 }
 
@@ -25,6 +31,9 @@ export async function POST(request: Request) {
 
   const { prompt, budget, qualityThreshold, deadline } = parsed.data;
 
+  // Guards against a freshly-migrated DB that hasn't run the seed script yet.
+  await ensureDemoUser();
+
   const task = await prisma.task.create({
     data: {
       prompt,
@@ -33,6 +42,7 @@ export async function POST(request: Request) {
       qualityThreshold: qualityThreshold ?? 70,
       deadline: deadline ? new Date(deadline) : null,
       status: "CREATED",
+      userId: DEMO_USER_ID,
     },
   });
 

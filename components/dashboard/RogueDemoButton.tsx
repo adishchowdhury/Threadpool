@@ -34,13 +34,23 @@ export function RogueDemoButton({ taskId }: { taskId: string | null }) {
   }
 
   return (
-    <div className="space-y-2">
-      <Button variant="destructive" className="w-full" onClick={fire} disabled={!taskId || firing}>
-        <ShieldAlert className="size-4" />
-        {firing ? "Firing rogue transaction..." : "Fire Rogue Agent Demo"}
+    <div className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={fire}
+        disabled={!taskId || firing}
+        className="text-destructive hover:bg-destructive/10"
+        aria-label={firing ? "Firing rogue tx..." : "Fire Rogue Demo"}
+      >
+        <ShieldAlert className="size-3.5" />
+        <span className="hidden sm:inline">{firing ? "Firing rogue tx..." : "Fire Rogue Demo"}</span>
       </Button>
       {result && (
-        <Alert variant={result.blocked ? "destructive" : "default"}>
+        <Alert
+          variant={result.blocked ? "destructive" : "default"}
+          className="absolute right-0 top-full z-40 mt-2 w-[min(20rem,calc(100vw-1.5rem))] rounded-md shadow-2xl"
+        >
           <ShieldAlert className="size-4" />
           <AlertTitle>{result.blocked ? "CIRCUIT BREAKER: BLOCKED" : "Unexpectedly approved"}</AlertTitle>
           <AlertDescription>

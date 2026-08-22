@@ -9,5 +9,5 @@ export function geminiModel() {
     throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set");
   }
   const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY });
-  return google("gemini-3.6-flash");
+  return google("gemini-3.1-flash-lite");
 }

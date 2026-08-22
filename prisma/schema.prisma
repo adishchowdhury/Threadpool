@@ -10,6 +10,24 @@ datasource db {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// USERS
+// ─────────────────────────────────────────────────────────────────────────
+// No login/account system yet — every task is currently attributed to a
+// single demo user (see lib/db/demoUser.ts) so chat history has a stable
+// owner to scope by once real auth lands.
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks Task[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // WALLETS
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -97,6 +115,8 @@ model Task {
   status          TaskStatus @default(CREATED)
   managerId       String     @default("manager-agent")
   finalOutput     String? // JSON-encoded final output payload
+  userId          String     @default("demo-user")
+  user            User       @relation(fields: [userId], references: [id])
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -108,6 +128,8 @@ model Task {
   events         Event[]
   performances   AgentPerformance[]
   securityEvents SecurityEvent[]
+
+  @@index([userId])
 }
 
 enum SubtaskStatus {

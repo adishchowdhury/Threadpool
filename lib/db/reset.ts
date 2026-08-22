@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { ensureSystemWallets, ensureAgentWallet } from "@/lib/economy/wallets";
+import { ensureDemoUser } from "@/lib/db/demoUser";
 
 export const REGISTRY_AGENTS: Array<{
   id: string;
@@ -103,6 +104,7 @@ export const REGISTRY_AGENTS: Array<{
 ];
 
 export async function seedRegistry() {
+  await ensureDemoUser();
   await ensureSystemWallets();
   for (const a of REGISTRY_AGENTS) {
     await prisma.agent.upsert({
