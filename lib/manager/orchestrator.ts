@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { emitEvent } from "@/lib/events/emit";
+import { commitWorkflowEvent, verifyWorkflowEvent, computeSha256 } from "@/lib/blockchain/algorandTrust";
 import { decomposeTask } from "@/lib/manager/planner";
 import { discoverAgents } from "@/lib/discovery";
 import { filterCandidates } from "@/lib/manager/filter";
@@ -144,6 +145,22 @@ export async function runTask(taskId: string) {
         where: { id: subtask.id },
         data: { status: "ASSIGNED", assignedAgentId: candidate.agent.id },
       });
+
+      // Anchor task assignment on Algorand trust layer
+      await commitWorkflowEvent({
+        workflowId: taskId,
+        taskId,
+        eventType: "TASK_ASSIGNED",
+        fromAgentId: "manager",
+        toAgentId: candidate.agent.id,
+        payload: {
+          subtaskId: subtask.id,
+          agentId: candidate.agent.id,
+          requiredCapability: subtask.requiredCapability,
+          budget: candidate.bidAmount,
+        },
+      });
+
       await emitEvent(prisma, {
         taskId,
         actor: "manager",
@@ -217,6 +234,8 @@ export async function runTask(taskId: string) {
         description: subtask.type,
         taskPrompt: task.prompt,
         feedback,
+        taskId: taskId,
+        agentId: active.agent.id,
       });
       const actualLatencyMs = Date.now() - executionStart;
 
@@ -224,6 +243,50 @@ export async function runTask(taskId: string) {
         where: { id: subtask.id },
         data: { status: "AWAITING_QA", output: exec.output },
       });
+
+      // Anchor result commitment on Algorand trust layer
+      const commitRes = await commitWorkflowEvent({
+        workflowId: taskId,
+        taskId,
+        eventType: "RESULT_COMMITTED",
+        fromAgentId: active.agent.id,
+        toAgentId: "qa",
+        payload: {
+          subtaskId: subtask.id,
+          outputHash: computeSha256(exec.output),
+        },
+      });
+
+      // Verify workflow event integrity
+      const verifyRes = await verifyWorkflowEvent(
+        taskId,
+        "RESULT_COMMITTED",
+        {
+          subtaskId: subtask.id,
+          outputHash: computeSha256(exec.output),
+        }
+      );
+
+      // Anchor result verification on Algorand trust layer
+      await commitWorkflowEvent({
+        workflowId: taskId,
+        taskId,
+        eventType: "RESULT_VERIFIED",
+        fromAgentId: "qa",
+        toAgentId: "system",
+        payload: {
+          subtaskId: subtask.id,
+          verified: verifyRes.success,
+          error: verifyRes.error || null,
+        },
+      });
+
+      if (!verifyRes.success) {
+        await prisma.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
+        await failTask(taskId, `Workflow integrity check failed: ${verifyRes.error}`);
+        return;
+      }
+
       await emitEvent(prisma, {
         taskId,
         actor: active.agent.id,
@@ -259,6 +322,21 @@ export async function runTask(taskId: string) {
           where: { id: subtask.id },
           data: { status: "DONE", qaScore: qa.verdict.score, qaReason: qa.verdict.reason },
         });
+
+        // Anchor QA Approved on Algorand trust layer
+        await commitWorkflowEvent({
+          workflowId: taskId,
+          taskId,
+          eventType: "QA_APPROVED",
+          fromAgentId: "qa",
+          toAgentId: "manager",
+          payload: {
+            subtaskId: subtask.id,
+            score: qa.verdict.score,
+            reason: qa.verdict.reason,
+          },
+        });
+
         await emitEvent(prisma, {
           taskId,
           actor: "qa",
@@ -284,6 +362,20 @@ export async function runTask(taskId: string) {
         totalCost += active.bidAmount;
         done = true;
       } else {
+        // Anchor QA Rejected on Algorand trust layer
+        await commitWorkflowEvent({
+          workflowId: taskId,
+          taskId,
+          eventType: "QA_REJECTED",
+          fromAgentId: "qa",
+          toAgentId: "manager",
+          payload: {
+            subtaskId: subtask.id,
+            score: qa.verdict.score,
+            reason: qa.verdict.reason,
+          },
+        });
+
         await emitEvent(prisma, {
           taskId,
           actor: "qa",

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { TaskRecord, CentralLedgerRecord } from "@/lib/types";
 import { useDraggable } from "@/lib/hooks/useDraggable";
 import { ChevronLeft, ChevronRight, GripVertical, Wallet } from "lucide-react";
+import { TrustPanel, type BlockchainWorkflowEventRecord } from "@/components/dashboard/TrustPanel";
 
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: "danger" | "success" }) {
   return (
@@ -27,11 +28,17 @@ function Stat({ label, value, tone }: { label: string; value: string | number; t
 export function EconomyPanel({
   task,
   ledger,
+  paymentIntents = [],
+  blockchainTransactions = [],
+  blockchainWorkflowEvents = [],
   open,
   onOpenChange,
 }: {
   task: TaskRecord | null;
   ledger: CentralLedgerRecord[];
+  paymentIntents?: any[];
+  blockchainTransactions?: any[];
+  blockchainWorkflowEvents?: BlockchainWorkflowEventRecord[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -98,6 +105,76 @@ export function EconomyPanel({
             <Stat label="Refunded" value={refunded} />
             <Stat label="Blocked Attempts" value={blocked} tone={blocked > 0 ? "danger" : undefined} />
           </div>
+
+          {paymentIntents.length > 0 && (
+            <>
+              <Separator className="bg-panel-border" />
+              <div>
+                <div className="mb-2 flex items-center justify-between text-[11px] text-panel-muted">
+                  <span>Multi-Chain x402 Payments</span>
+                  <span className="text-[10px] uppercase text-panel-muted">Settled</span>
+                </div>
+                <div className="max-h-32 space-y-2 overflow-y-auto pr-1">
+                  {paymentIntents.map((pi: any) => {
+                    const bt = blockchainTransactions.find((b: any) => b.paymentIntentId === pi.id);
+                    let meta: any = null;
+                    try {
+                      if (bt?.rawMetadata) meta = JSON.parse(bt.rawMetadata);
+                    } catch {}
+
+                    const isAlgo = pi.currency === "ALGO";
+                    const txLink = isAlgo
+                      ? `https://testnet.explorer.perawallet.app/tx/${pi.blockchainTxId}`
+                      : `https://sepolia.etherscan.io/tx/${pi.blockchainTxId}`;
+
+                    return (
+                      <div key={pi.id} className="space-y-1 rounded-sm border border-panel-border bg-panel-elevated p-2 font-mono text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-panel-foreground">{isAlgo ? "Algorand Pay" : "Ethereum Pay"}</span>
+                          <span className={`px-1 py-0.2 rounded text-[9px] font-semibold uppercase ${
+                            pi.status === "SETTLED" ? "bg-emerald-500/10 text-emerald-400" :
+                            pi.status === "FAILED" ? "bg-destructive/15 text-rose-400" : "bg-amber-500/10 text-amber-400"
+                          }`}>
+                            {pi.status}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-panel-muted">
+                          <span>Amount: {pi.amount} {pi.currency}</span>
+                          <span>Key: {pi.idempotencyKey.split("_").pop()}</span>
+                        </div>
+                        {pi.blockchainTxId && (
+                          <div className="truncate text-panel-foreground">
+                            Tx: <a
+                              href={txLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline hover:text-panel-muted"
+                            >
+                              {pi.blockchainTxId.substring(0, 18)}...
+                            </a>
+                          </div>
+                        )}
+                        {!isAlgo && meta?.anchorTxHash && (
+                          <div className="flex items-center justify-between truncate border-t border-dashed border-panel-border pt-1 text-[10px] text-panel-muted">
+                            <span>Anchored Ledger:</span>
+                            <a
+                              href={`https://sepolia.etherscan.io/tx/${meta.anchorTxHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-semibold text-emerald-400 underline hover:text-emerald-300"
+                            >
+                              {meta.anchorTxHash.substring(0, 12)}...
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
           <Separator className="bg-panel-border" />
           <div>
             <div className="mb-2 text-[11px] text-panel-muted">Recent Transactions</div>
@@ -118,6 +195,13 @@ export function EconomyPanel({
               ))}
             </div>
           </div>
+
+          {blockchainWorkflowEvents.length > 0 && (
+            <>
+              <Separator className="bg-panel-border" />
+              <TrustPanel events={blockchainWorkflowEvents} />
+            </>
+          )}
         </div>
       </ScrollArea>
     </div>

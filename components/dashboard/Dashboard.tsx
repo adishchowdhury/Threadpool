@@ -39,6 +39,9 @@ export function Dashboard() {
   const [task, setTask] = useState<TaskRecord | null>(null);
   const [ledger, setLedger] = useState<CentralLedgerRecord[]>([]);
   const [historicalEvents, setHistoricalEvents] = useState<MomentumEvent[]>([]);
+  const [paymentIntents, setPaymentIntents] = useState<any[]>([]);
+  const [blockchainTransactions, setBlockchainTransactions] = useState<any[]>([]);
+  const [blockchainWorkflowEvents, setBlockchainWorkflowEvents] = useState<any[]>([]);
   const [resetting, setResetting] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -118,6 +121,9 @@ export function Dashboard() {
       const res = await fetch(`/api/transactions?taskId=${id}`);
       const data = await res.json();
       setLedger(data.transactions ?? []);
+      setPaymentIntents(data.paymentIntents ?? []);
+      setBlockchainTransactions(data.blockchainTransactions ?? []);
+      setBlockchainWorkflowEvents(data.blockchainWorkflowEvents ?? []);
     } catch {
       // non-critical panel — fail silently, the next poll will retry
     }
@@ -206,6 +212,9 @@ export function Dashboard() {
       setLedger([]);
       setHistoricalEvents([]);
       setReportOpen(false);
+      setPaymentIntents([]);
+      setBlockchainTransactions([]);
+      setBlockchainWorkflowEvents([]);
       await refreshAgents();
     } catch {
       toast.error("Couldn't reach the server to reset the demo.");
@@ -241,7 +250,15 @@ export function Dashboard() {
       </header>
 
       <ActivityFeed events={taskEvents} open={activityOpen} onOpenChange={handleActivityOpenChange} />
-      <EconomyPanel task={task} ledger={ledger} open={economyOpen} onOpenChange={handleEconomyOpenChange} />
+      <EconomyPanel
+        task={task}
+        ledger={ledger}
+        paymentIntents={paymentIntents}
+        blockchainTransactions={blockchainTransactions}
+        blockchainWorkflowEvents={blockchainWorkflowEvents}
+        open={economyOpen}
+        onOpenChange={handleEconomyOpenChange}
+      />
 
       <FloatingChatBar onCreated={setTaskId} disabled={isRunning} isRunning={isRunning} elapsedSeconds={elapsedSeconds} onCancel={handleCancel} />
 
