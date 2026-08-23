@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+﻿import { prisma } from "@/lib/prisma";
 import { publish } from "@/lib/events/bus";
 import type { Prisma } from "@/app/generated/prisma/client";
 
@@ -30,18 +30,18 @@ export const EVENT_TYPES = [
   "WORKFLOW_MEMORY_STORED",
   "WORKFLOW_ANCHORED",
   "WEB_DATA_FETCHED",
-  "MOMENTUM_OPTIMIZER_STARTED",
-  "MOMENTUM_OPTIMIZER_COMPLETED",
-  "MOMENTUM_OPTIMIZER_FAILED",
+  "KRAVEN_OPTIMIZER_STARTED",
+  "KRAVEN_OPTIMIZER_COMPLETED",
+  "KRAVEN_OPTIMIZER_FAILED",
 ] as const;
 
-export type MomentumEventType = (typeof EVENT_TYPES)[number];
+export type KravenEventType = (typeof EVENT_TYPES)[number];
 
 // Accepts an optional transaction client so callers inside a
 // prisma.$transaction() can emit atomically with the mutation they describe.
 export async function emitEvent(
   db: Prisma.TransactionClient | typeof prisma,
-  params: { taskId?: string | null; actor: string; eventType: MomentumEventType; payload?: unknown },
+  params: { taskId?: string | null; actor: string; eventType: KravenEventType; payload?: unknown },
 ) {
   const row = await db.event.create({
     data: {

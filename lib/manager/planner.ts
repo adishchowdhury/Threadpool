@@ -1,4 +1,4 @@
-import { taskPlanSchema, type TaskPlan } from "@/lib/manager/schemas";
+﻿import { taskPlanSchema, type TaskPlan } from "@/lib/manager/schemas";
 import { isGeminiConfigured } from "@/lib/manager/gemini";
 import { generateStructured } from "@/lib/manager/structuredGenerate";
 
@@ -52,7 +52,7 @@ export async function decomposeTask(params: {
   try {
     const object = await generateStructured({
       schema: taskPlanSchema,
-      prompt: `You are the Manager Agent for Momentum, an autonomous AI workforce optimizer.
+      prompt: `You are the Manager Agent for Kraven, an autonomous AI workforce optimizer.
 Decompose the following user task into 2-5 concrete subtasks, each requiring exactly one capability
 from this fixed list: market_research, financial_analysis, data_extraction, writing, report_generation,
 summarization, quality_verification, review.

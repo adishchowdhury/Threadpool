@@ -1,4 +1,4 @@
-# Momentum — Autonomous AI Workforce Optimizer
+﻿# Kraven — Autonomous AI Workforce Optimizer
 
 A Gemini-powered Manager Agent decomposes a task, discovers/filters/ranks AI worker agents from a registry, constructs a workforce, executes the workflow, runs independent QA, and settles payment through a two-tier virtual-token economy — all gated by a deterministic Circuit Breaker that no LLM can override.
 
@@ -17,12 +17,12 @@ Next.js (App Router) + TypeScript + Tailwind + shadcn/ui · Gemini via Vercel AI
 1. **Database** — start Postgres. If you don't have one running locally, this project was developed against an isolated Docker container so it never touches any Postgres already installed on your machine:
 
    ```bash
-   docker run -d --name momentum-postgres \
-     -e POSTGRES_USER=momentum -e POSTGRES_PASSWORD=momentum_dev_pw -e POSTGRES_DB=momentum \
+   docker run -d --name kraven-postgres \
+     -e POSTGRES_USER=kraven -e POSTGRES_PASSWORD=kraven_dev_pw -e POSTGRES_DB=kraven \
      -p 5433:5432 postgres:16-alpine
    ```
 
-   (Already created it once? `docker start momentum-postgres` next time instead.)
+   (Already created it once? `docker start kraven-postgres` next time instead.)
 
 2. **Env vars** — copy `.env` and fill in `GOOGLE_GENERATIVE_AI_API_KEY` if you have one (get one at https://aistudio.google.com/apikey). `DATABASE_URL` is already pointed at the container above.
 

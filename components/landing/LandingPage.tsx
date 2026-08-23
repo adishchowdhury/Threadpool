@@ -1,11 +1,12 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { FigmaCursor } from "./FigmaCursor";
 import { FluidOrb } from "./FluidOrb";
 import { MagneticButton } from "./MagneticButton";
 
-const WORDS = ["Momentum", "Innofusion", "Intelligence", "Velocity"];
+const WORDS = ["Kraven", "Innofusion", "Intelligence", "Velocity"];
 
 function useTextScramble(target: string) {
   const [output, setOutput] = useState(target);
@@ -234,12 +235,15 @@ export function LandingPage() {
           transition: "background 0.4s, backdrop-filter 0.4s, border 0.4s",
         }}
       >
-        <div className="flex items-center gap-2">
-          {/* Logo mark */}
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-            <polygon points="14,2 26,24 2,24" fill="white" />
-          </svg>
-          <span className="text-white font-semibold tracking-tight text-sm">Innofusion</span>
+        <div className="flex items-center">
+          <Image
+            src="/logo.png"
+            alt="Kraven"
+            width={2172}
+            height={724}
+            className="h-6 w-auto invert"
+            priority
+          />
         </div>
         <div className="hidden md:flex items-center gap-8 text-xs text-white/40 uppercase tracking-widest font-mono">
           {["Product", "Studio", "Docs", "Blog"].map((item) => (

@@ -3,31 +3,53 @@ import { emitEvent } from "@/lib/events/emit";
 import * as eth from "@/lib/blockchain/ethereum";
 import * as algo from "@/lib/blockchain/algorand";
 
+// CAIP-2 chain identifiers, per https://dev.algorand.co/resources/x402-on-algorand/
+// (Algorand ids are `algorand:<base64 genesis hash>`, not a human label).
+export const X402_NETWORK = {
+  algorandTestnet: "algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=",
+  algorandMainnet: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73k",
+  sepolia: "eip155:11155111",
+} as const;
+
+export const X402_VERSION = 1;
+
+/** A single accepted payment method, as returned in a 402 response body's `accepts` array. */
+export interface PaymentRequirements {
+  scheme: "exact";
+  network: string; // CAIP-2 id, e.g. X402_NETWORK.algorandTestnet
+  maxAmountRequired: string; // atomic units (microAlgos / Wei), as a string per spec
+  resource: string;
+  description: string;
+  mimeType: string;
+  payTo: string;
+  maxTimeoutSeconds: number;
+  asset: string;
+  extra?: Record<string, unknown>;
+}
+
+/** Body of an HTTP 402 response, per the x402 spec (not carried in a header). */
 export interface PaymentRequiredPayload {
   x402Version: number;
   error: string;
-  resource: {
-    url: string;
-    description: string;
-  };
-  accepts: Array<{
-    scheme: string;
-    network: string;
-    amount: string;
-    asset: string;
-    payTo: string;
-  }>;
+  accepts: PaymentRequirements[];
 }
 
-export interface PaymentSignaturePayload {
+/** Decoded contents of the `X-PAYMENT` request header sent by the payer on retry. */
+export interface X402PaymentPayload {
+  x402Version: number;
+  scheme: "exact";
   network: string;
-  transaction: string;
+  payload: {
+    transaction: string; // signed txn (base64) for Algorand, or a tx hash for the EVM demo path
+  };
 }
 
-export interface PaymentResponsePayload {
+/** Decoded contents of the `X-PAYMENT-RESPONSE` header returned once settlement succeeds. */
+export interface X402SettleResponse {
   success: boolean;
   network: string;
   transaction: string;
+  payer: string;
 }
 
 export function encodeHeaderPayload(payload: any): string {
@@ -252,5 +274,156 @@ export async function executeX402PaymentGuard(params: {
       });
       return { decision: "BLOCK" as const, reason: "BLOCKCHAIN_PAYMENT_FAILED" };
     }
+  });
+}
+
+const X402_REAL_MAX_TOKEN_COST = 5;
+
+/**
+ * Deterministic Circuit Breaker / budget authorization for the real x402
+ * Algorand flow (see lib/blockchain/x402Algorand.ts). Unlike
+ * executeX402PaymentGuard above, this does NOT perform the on-chain payment
+ * itself — the real ASA transfer is signed and settled by the official x402
+ * SDK (@x402/fetch + @x402/avm) as part of the HTTP round trip. This function
+ * only decides whether the agent is authorized to spend, before that HTTP
+ * call is made, and reserves a PaymentIntent row so the spend can't be
+ * double-authorized.
+ */
+export async function authorizeX402Spend(params: {
+  taskId: string;
+  requestingAgentId: string;
+  recipientServiceId: string;
+  tokenCost: number;
+  purpose: string;
+  idempotencyKey: string;
+}): Promise<{ decision: "APPROVE"; intentId: string } | { decision: "BLOCK"; reason: string }> {
+  return prisma.$transaction(async (db) => {
+    const task = await db.task.findUniqueOrThrow({ where: { id: params.taskId } });
+
+    let blockedReason = "";
+    if (params.tokenCost > X402_REAL_MAX_TOKEN_COST) {
+      blockedReason = "EXCEEDS_MAX_TRANSACTION_LIMIT";
+    } else if (params.tokenCost > task.remainingBudget) {
+      blockedReason = "BUDGET_EXCEEDED";
+    }
+
+    if (blockedReason) {
+      await db.securityEvent.create({
+        data: {
+          taskId: params.taskId,
+          agentId: params.requestingAgentId,
+          type: "CIRCUIT_BREAKER_TRIGGERED",
+          reason: blockedReason,
+          payload: JSON.stringify({
+            tokenCost: params.tokenCost,
+            allowedLimit: X402_REAL_MAX_TOKEN_COST,
+            recipient: params.recipientServiceId,
+          }),
+          severity: "CRITICAL",
+          requestedAmount: params.tokenCost,
+          allowedAmount: X402_REAL_MAX_TOKEN_COST,
+        },
+      });
+
+      await db.centralLedger.create({
+        data: {
+          taskId: params.taskId,
+          fromWalletId: "wallet-manager",
+          toWalletId: "wallet-escrow-pool",
+          amount: Math.round(params.tokenCost),
+          purpose: params.purpose,
+          type: "BLOCKED_ATTEMPT",
+          status: "BLOCKED",
+          reason: blockedReason,
+        },
+      });
+
+      await emitEvent(db, {
+        taskId: params.taskId,
+        actor: "circuit_breaker",
+        eventType: "TRANSACTION_BLOCKED",
+        payload: { agentId: params.requestingAgentId, tokenCost: params.tokenCost, reason: blockedReason },
+      });
+
+      return { decision: "BLOCK" as const, reason: blockedReason };
+    }
+
+    const existing = await db.paymentIntent.findUnique({ where: { idempotencyKey: params.idempotencyKey } });
+    if (existing) {
+      if (existing.status === "SETTLED") {
+        return { decision: "BLOCK" as const, reason: "DUPLICATE_IDEMPOTENCY_KEY" };
+      }
+      return { decision: "APPROVE" as const, intentId: existing.id };
+    }
+
+    const intent = await db.paymentIntent.create({
+      data: {
+        taskId: params.taskId,
+        requestingAgentId: params.requestingAgentId,
+        recipientServiceId: params.recipientServiceId,
+        amount: params.tokenCost,
+        currency: "USDC",
+        status: "PENDING",
+        idempotencyKey: params.idempotencyKey,
+      },
+    });
+
+    return { decision: "APPROVE" as const, intentId: intent.id };
+  });
+}
+
+/**
+ * Records the real on-chain settlement (transaction id + network) returned by
+ * the x402 facilitator after @x402/fetch's wrapFetchWithPayment completed a
+ * genuine 402 -> sign -> verify -> settle round trip, and debits the task
+ * budget. Called only after that real payment has actually confirmed.
+ */
+export async function finalizeX402Settlement(params: {
+  intentId: string;
+  taskId: string;
+  requestingAgentId: string;
+  tokenCost: number;
+  txId: string;
+  network: string;
+  atomicAmount?: string;
+}): Promise<void> {
+  await prisma.$transaction(async (db) => {
+    await db.blockchainTransaction.create({
+      data: {
+        paymentIntentId: params.intentId,
+        network: params.network,
+        transactionId: params.txId,
+        amount: params.atomicAmount ? Number(params.atomicAmount) : params.tokenCost,
+        asset: "USDC",
+        status: "CONFIRMED",
+        confirmedAt: new Date(),
+        rawMetadata: JSON.stringify({ note: "Real x402 (AVM exact scheme) USDC payment on Algorand testnet" }),
+      },
+    });
+
+    await db.paymentIntent.update({
+      where: { id: params.intentId },
+      data: { status: "SETTLED", blockchainTxId: params.txId, network: params.network, settledAt: new Date() },
+    });
+
+    await db.task.update({
+      where: { id: params.taskId },
+      data: { remainingBudget: { decrement: Math.round(params.tokenCost) } },
+    });
+
+    await emitEvent(db, {
+      taskId: params.taskId,
+      actor: "system",
+      eventType: "TRANSACTION_APPROVED",
+      payload: { agentId: params.requestingAgentId, tokenCost: params.tokenCost, txId: params.txId },
+    });
+  });
+}
+
+/** Marks a reserved PaymentIntent as failed (e.g. the real x402 HTTP round trip errored). */
+export async function failX402Intent(intentId: string, reason: string): Promise<void> {
+  await prisma.paymentIntent.update({
+    where: { id: intentId },
+    data: { status: "FAILED", failureReason: reason },
   });
 }

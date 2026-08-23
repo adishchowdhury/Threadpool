@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { MomentumEvent } from "@/lib/hooks/useEventStream";
+import type { KravenEvent } from "@/lib/hooks/useEventStream";
 import { useDraggable } from "@/lib/hooks/useDraggable";
 import { ChevronLeft, ChevronRight, GripVertical, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -12,7 +12,7 @@ const SECURITY_EVENTS = new Set(["TRANSACTION_BLOCKED", "WALLET_REVOKED"]);
 const SUCCESS_EVENTS = new Set(["QA_PASSED", "TRANSACTION_APPROVED", "TASK_COMPLETED"]);
 const FAIL_EVENTS = new Set(["QA_FAILED", "TASK_FAILED", "TASK_CANCELLED"]);
 
-function eventLine(e: MomentumEvent): string {
+function eventLine(e: KravenEvent): string {
   const p = (e.payload ?? {}) as Record<string, unknown>;
   switch (e.eventType) {
     case "MANAGER_PLANNING":
@@ -71,7 +71,7 @@ export function ActivityFeed({
   open,
   onOpenChange,
 }: {
-  events: MomentumEvent[];
+  events: KravenEvent[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -125,7 +125,7 @@ export function ActivityFeed({
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="animate-in fade-in space-y-1.5 p-2.5 duration-300">
+        <div className="animate-in fade-in min-w-0 space-y-1.5 overflow-x-hidden p-2.5 duration-300">
           {events.length === 0 && <p className="text-xs text-panel-muted">Waiting for events...</p>}
           {events
             .slice()
@@ -138,7 +138,7 @@ export function ActivityFeed({
                 <div
                   key={e.id}
                   className={cn(
-                    "animate-in fade-in slide-in-from-top-1 rounded-sm border px-2.5 py-1.5 font-mono text-[11px] leading-relaxed duration-300",
+                    "animate-in fade-in slide-in-from-top-1 min-w-0 rounded-sm border px-2.5 py-1.5 font-mono text-[11px] leading-relaxed wrap-break-word duration-300",
                     isSecurity
                       ? "border-destructive/50 bg-destructive/10 text-destructive"
                       : isSuccess
@@ -148,13 +148,17 @@ export function ActivityFeed({
                           : "border-panel-border bg-panel-elevated text-panel-foreground",
                   )}
                 >
-                  <div className="mb-0.5 flex items-center gap-1.5">
-                    <Badge variant="secondary" className="rounded-sm px-1 py-0 text-[9px]">
+                  <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
+                    <Badge
+                      variant="secondary"
+                      title={e.actor}
+                      className="min-w-0 shrink truncate rounded-sm px-1 py-0 text-[9px]"
+                    >
                       {e.actor}
                     </Badge>
-                    <span className="text-panel-muted">{new Date(e.createdAt).toLocaleTimeString()}</span>
+                    <span className="shrink-0 text-panel-muted">{new Date(e.createdAt).toLocaleTimeString()}</span>
                   </div>
-                  {eventLine(e)}
+                  <div className="wrap-anywhere">{eventLine(e)}</div>
                 </div>
               );
             })}

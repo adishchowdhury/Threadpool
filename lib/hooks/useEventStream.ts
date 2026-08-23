@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 
-export interface MomentumEvent {
+export interface KravenEvent {
   id: string;
   taskId: string | null;
   actor: string;
@@ -15,7 +15,7 @@ export interface MomentumEvent {
 // backend has emitted. Consumers filter by taskId themselves — the frontend
 // never guesses state, it only renders what the stream said happened.
 export function useEventStream(maxEvents = 500) {
-  const [events, setEvents] = useState<MomentumEvent[]>([]);
+  const [events, setEvents] = useState<KravenEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const sourceRef = useRef<EventSource | null>(null);
 
@@ -26,7 +26,7 @@ export function useEventStream(maxEvents = 500) {
     source.addEventListener("connected", () => setConnected(true));
     source.onmessage = (msg) => {
       try {
-        const event = JSON.parse(msg.data) as MomentumEvent;
+        const event = JSON.parse(msg.data) as KravenEvent;
         setEvents((prev) => [...prev.slice(-(maxEvents - 1)), event]);
       } catch {
         // ignore malformed frames

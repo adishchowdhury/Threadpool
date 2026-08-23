@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+﻿import { chromium } from "playwright";
 import fs from "fs";
 
 const shotDir = "scripts/.screenshots";
@@ -16,7 +16,7 @@ page.on("response", (res) => {
 });
 
 await page.goto("http://localhost:3000", { waitUntil: "networkidle" });
-await page.waitForSelector("text=Momentum");
+await page.waitForSelector("text=Kraven");
 await page.screenshot({ path: `${shotDir}/01-loaded.png`, fullPage: true });
 console.log("Loaded dashboard. Agent registry visible:", await page.locator("text=Agent Registry").isVisible());
 

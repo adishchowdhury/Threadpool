@@ -1,4 +1,4 @@
-import { LocalPromptOptimizer } from "../lib/optimizer/localOptimizer";
+﻿import { LocalPromptOptimizer } from "../lib/optimizer/localOptimizer";
 import fs from "fs";
 import path from "path";
 
@@ -14,7 +14,7 @@ const BENCHMARK_PROMPTS = [
 ];
 
 async function runBenchmark() {
-  console.log("=== MOMENTUM PROMPT OPTIMIZER BENCHMARK ===");
+  console.log("=== KRAVEN PROMPT OPTIMIZER BENCHMARK ===");
   
   const optimizer = new LocalPromptOptimizer();
   const results: any[] = [];

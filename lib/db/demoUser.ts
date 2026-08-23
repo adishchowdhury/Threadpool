@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+﻿import { prisma } from "@/lib/prisma";
 
 // There's no login/account system yet — every task is attributed to this
 // single fixed demo user so chat history has a stable owner to scope by.
@@ -12,7 +12,7 @@ export async function ensureDemoUser() {
     update: {},
     create: {
       id: DEMO_USER_ID,
-      email: "demo@momentum.local",
+      email: "demo@kraven.local",
       name: "Demo User",
       isDemo: true,
     },

@@ -1,7 +1,13 @@
-import { generateText } from "ai";
+﻿import { generateText } from "ai";
 import { geminiModel, isGeminiConfigured, type GeminiModelTier } from "@/lib/manager/gemini";
-import { POST as premiumMarketResearchHandler } from "@/app/api/x402/premium-market-research/route";
-import { executeX402PaymentGuard, decodeHeaderPayload, encodeHeaderPayload } from "@/lib/blockchain/x402";
+import { authorizeX402Spend, finalizeX402Settlement, failX402Intent } from "@/lib/blockchain/x402";
+import {
+  getX402PayingFetch,
+  isRealX402PayerConfigured,
+  X402_ALGORAND_NETWORK,
+  describeX402Failure,
+  getX402SettleResponse,
+} from "@/lib/blockchain/x402Algorand";
 import { prisma } from "@/lib/prisma";
 import { isAsiOneConfigured, invokeAgentviaAsiOne } from "@/lib/manager/asiOne";
 import { gatherWebContext, formatWebContextForPrompt } from "@/lib/manager/webScraper";
@@ -49,93 +55,83 @@ export async function executeSubtask(params: {
 }): Promise<{ output: string; actualLatencyMs: number; source: string }> {
   const start = Date.now();
 
-  // If this is market research and we have taskId and agentId, route via the real x402 payment flow
+  // If this is market research and we have taskId and agentId, route via the
+  // real x402 payment flow: a genuine HTTP 402 -> sign -> verify -> settle
+  // round trip against /api/x402/premium-market-research, using the official
+  // @x402/* SDK (see lib/blockchain/x402Algorand.ts). The signed payment is a
+  // real Algorand testnet USDC (ASA) transfer, verified and settled by a live
+  // x402 facilitator — not a custom header scheme.
+  const X402_PRICE_USD = 0.01;
+  const X402_TOKEN_COST = 1; // demo conversion: $0.01 real USDC == 1 virtual task-budget token
+
   if (params.type === "market_research" && params.taskId && params.agentId) {
-    try {
-      console.log("[x402 Flow] Initiating premium market research call");
-      
-      // Step 1: Initial call with no payment signature
-      const initialRequest = new Request("http://localhost/api/x402/premium-market-research", {
-        method: "POST",
-        body: JSON.stringify({
-          query: params.taskPrompt,
-          depth: "premium",
-          taskId: params.taskId,
-          agentId: params.agentId,
-          idempotencyKey: `idem_${params.taskId}_market_research_${params.agentId}`,
-        }),
-      });
-      
-      const initialResponse = await premiumMarketResearchHandler(initialRequest);
-      
-      if (initialResponse.status === 402) {
-        // Step 2: Extract payment requirements
-        const paymentRequiredHeader = initialResponse.headers.get("PAYMENT-REQUIRED");
-        if (!paymentRequiredHeader) {
-          throw new Error("Missing PAYMENT-REQUIRED header in 402 response");
-        }
-        
-        const requirements = decodeHeaderPayload<any>(paymentRequiredHeader);
-        const accepts = requirements.accepts[0];
-        const amount = Number(accepts.amount);
-        
-        console.log(`[x402 Flow] Received 402. Required: ${amount} microAlgos to ${accepts.payTo}`);
-        
-        // Step 3: Run deterministic Payment Guard / Circuit Breaker
-        const guardResult = await executeX402PaymentGuard({
+    if (!isRealX402PayerConfigured()) {
+      console.warn("[x402 Flow] ALGOD_MNEMONIC/MANAGER_MNEMONIC not set — skipping real x402 flow, using regular research path");
+    } else {
+      const idempotencyKey = `idem_${params.taskId}_market_research_${params.agentId}`;
+      let intentId: string | null = null;
+      try {
+        console.log("[x402 Flow] Authorizing spend against task budget (Circuit Breaker)");
+
+        const guard = await authorizeX402Spend({
           taskId: params.taskId,
           requestingAgentId: params.agentId,
-          recipientServiceId: accepts.payTo,
-          amount: amount,
+          recipientServiceId: "premium-market-research",
+          tokenCost: X402_TOKEN_COST,
           purpose: "market_research",
-          idempotencyKey: `idem_${params.taskId}_market_research_${params.agentId}`,
+          idempotencyKey,
         });
-        
-        if (guardResult.decision === "BLOCK") {
-          console.log(`[x402 Flow] Payment Guard BLOCKED transaction: ${guardResult.reason}`);
+
+        if (guard.decision === "BLOCK") {
+          console.log(`[x402 Flow] Circuit Breaker BLOCKED: ${guard.reason}`);
           return {
-            output: `🚨 CIRCUIT BREAKER TRIGGERED\n\nRequested: ${amount} microAlgos\nAuthorized Maximum: 5000 microAlgos\nStatus: BLOCKED\nReason: ${guardResult.reason}\nBlockchain Transaction: NONE`,
+            output: `🚨 CIRCUIT BREAKER TRIGGERED\n\nRequested: $${X402_PRICE_USD} USDC (${X402_TOKEN_COST} token)\nStatus: BLOCKED\nReason: ${guard.reason}\nBlockchain Transaction: NONE`,
             actualLatencyMs: Date.now() - start,
             source: "circuit_breaker",
           };
         }
-        
-        // Step 4: Resubmit original request with PAYMENT-SIGNATURE
-        console.log(`[x402 Flow] Payment Guard APPROVED transaction: ${guardResult.txId}. Resubmitting...`);
-        const signedHeader = encodeHeaderPayload({
-          network: guardResult.network,
-          transaction: guardResult.txId,
-        });
-        
-        const authenticatedRequest = new Request("http://localhost/api/x402/premium-market-research", {
-          method: "POST",
-          headers: {
-            "PAYMENT-SIGNATURE": signedHeader,
-          },
-          body: JSON.stringify({
-            query: params.taskPrompt,
-            depth: "premium",
-            taskId: params.taskId,
-            agentId: params.agentId,
-            idempotencyKey: `idem_${params.taskId}_market_research_${params.agentId}`,
-          }),
-        });
-        
-        const finalResponse = await premiumMarketResearchHandler(authenticatedRequest);
-        if (!finalResponse.ok) {
-          throw new Error(`Second request failed with status: ${finalResponse.status}`);
+        intentId = guard.intentId;
+
+        console.log("[x402 Flow] Authorized. Performing real x402 payment via official SDK...");
+        const payFetch = getX402PayingFetch();
+        const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
+        const url = `${baseUrl}/api/x402/premium-market-research?query=${encodeURIComponent(params.taskPrompt)}&depth=premium`;
+
+        const response = await payFetch(url, { method: "GET" });
+        if (!response.ok) {
+          throw new Error(`x402 request failed (HTTP ${response.status}): ${await describeX402Failure(response)}`);
         }
-        
-        const resultData = await finalResponse.json();
+
+        const settlement = getX402SettleResponse(response);
+        const txId = settlement?.transaction;
+        if (!txId) {
+          throw new Error("x402 response missing a PAYMENT-RESPONSE header — cannot confirm real payment");
+        }
+
+        console.log(`[x402 Flow] Settled on-chain: ${txId} (${settlement?.network ?? X402_ALGORAND_NETWORK})`);
+        await finalizeX402Settlement({
+          intentId,
+          taskId: params.taskId,
+          requestingAgentId: params.agentId,
+          tokenCost: X402_TOKEN_COST,
+          txId,
+          network: settlement?.network ?? X402_ALGORAND_NETWORK,
+          atomicAmount: settlement?.amount,
+        });
+
+        const resultData = await response.json();
         return {
           output: typeof resultData === "string" ? resultData : resultData.result || JSON.stringify(resultData),
           actualLatencyMs: Date.now() - start,
-          source: "x402_premium_service",
+          source: "x402_premium_service_algorand_real",
         };
+      } catch (err: any) {
+        console.error("[x402 Flow Error]", err);
+        if (intentId) {
+          await failX402Intent(intentId, err.message || "x402 flow failed").catch(() => {});
+        }
+        // Fallback if anything in the real handshake fails to the regular research flow
       }
-    } catch (err: any) {
-      console.error("[x402 Flow Error]", err);
-      // Fallback if anything in the handshake fails to the regular flow
     }
   }
 
@@ -214,7 +210,7 @@ export async function executeSubtask(params: {
     const tier = (resolvedAgent?.provider === "local" ? (resolvedAgent.model as GeminiModelTier | null) : null) ?? "economy";
     const { text } = await generateText({
       model: geminiModel(tier),
-      prompt: `You are a specialized AI worker agent hired by Momentum's Manager Agent.
+      prompt: `You are a specialized AI worker agent hired by Kraven's Manager Agent.
 Your capability: ${params.type}.
 Overall task: "${params.taskPrompt}"
 Your specific instruction: ${params.description}${feedbackBlock}${webBlock}

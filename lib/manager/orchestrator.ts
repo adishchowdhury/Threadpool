@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+﻿import { prisma } from "@/lib/prisma";
 import { emitEvent } from "@/lib/events/emit";
 import { commitWorkflowEvent, verifyWorkflowEvent, computeSha256 } from "@/lib/blockchain/algorandTrust";
 import { decomposeTask } from "@/lib/manager/planner";
@@ -47,7 +47,7 @@ export async function runTask(taskId: string) {
   let activePrompt = task.prompt;
 
   if (task.optimizationMode === "B") {
-    await emitEvent(prisma, { taskId, actor: "manager", eventType: "MOMENTUM_OPTIMIZER_STARTED", payload: { prompt: task.prompt } });
+    await emitEvent(prisma, { taskId, actor: "manager", eventType: "KRAVEN_OPTIMIZER_STARTED", payload: { prompt: task.prompt } });
     const start = Date.now();
     const router = new PromptOptimizationRouter();
     try {
@@ -69,7 +69,7 @@ export async function runTask(taskId: string) {
       await emitEvent(prisma, {
         taskId,
         actor: "manager",
-        eventType: "MOMENTUM_OPTIMIZER_COMPLETED",
+        eventType: "KRAVEN_OPTIMIZER_COMPLETED",
         payload: {
           optimizedTask: optimized,
           latencyMs: latency,
@@ -78,7 +78,7 @@ export async function runTask(taskId: string) {
       });
     } catch (err: any) {
       console.error("[Orchestrator] Prompt optimization failed, using raw prompt:", err);
-      await emitEvent(prisma, { taskId, actor: "manager", eventType: "MOMENTUM_OPTIMIZER_FAILED", payload: { error: err.message } });
+      await emitEvent(prisma, { taskId, actor: "manager", eventType: "KRAVEN_OPTIMIZER_FAILED", payload: { error: err.message } });
     }
   }
 

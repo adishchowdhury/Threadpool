@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+﻿import { chromium } from "playwright";
 import fs from "fs";
 
 const shotDir = "scripts/.screenshots";
@@ -8,7 +8,7 @@ const browser = await chromium.launch({ args: ["--no-sandbox"] });
 const page = await browser.newPage({ viewport: { width: 375, height: 812 } });
 
 await page.goto("http://localhost:3000", { waitUntil: "networkidle" });
-await page.waitForSelector("text=Momentum").catch(() => {});
+await page.waitForSelector("text=Kraven").catch(() => {});
 
 await page.click('button[aria-label="Run task"]');
 console.log("Clicked send button");

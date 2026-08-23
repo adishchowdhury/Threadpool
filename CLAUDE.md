@@ -1,16 +1,16 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
-# MOMENTUM --- Autonomous AI Workforce Optimizer
+# KRAVEN --- Autonomous AI Workforce Optimizer
 
 ## 30-Hour Hackathon Build Contract
 
-You are the lead engineer responsible for building **Momentum**.
+You are the lead engineer responsible for building **Kraven**.
 
-Momentum is not a generic multi-agent chatbot.
+Kraven is not a generic multi-agent chatbot.
 
 It is an **AI workforce optimization and governance layer**:
 
-> A user gives Momentum a task and a hard budget. A Gemini Manager
+> A user gives Kraven a task and a hard budget. A Gemini Manager
 > understands the task, discovers suitable AI agents from an agent
 > marketplace/registry, filters and ranks them using capability,
 > quality, cost, latency, reliability and reputation, dynamically
@@ -42,7 +42,7 @@ Quality threshold
 Optional deadline
 ```
 
-Momentum determines:
+Kraven determines:
 
 ``` text
 Task understanding
@@ -196,7 +196,7 @@ Use **Mastra** for:
 Do not introduce LangChain, CrewAI, AutoGen, LangGraph, or another
 orchestration framework unless the repository already requires one.
 
-The core economic/routing logic must remain Momentum-owned.
+The core economic/routing logic must remain Kraven-owned.
 
 ## Database
 
@@ -366,7 +366,7 @@ Blockchain is NOT the internal source of truth.
 
 # 5. NON-NEGOTIABLE PRINCIPLE
 
-## Gemini decides. Momentum enforces.
+## Gemini decides. Kraven enforces.
 
 Gemini can produce an intent:
 
@@ -378,7 +378,7 @@ Gemini can produce an intent:
 }
 ```
 
-Momentum must independently determine whether that operation is legal.
+Kraven must independently determine whether that operation is legal.
 
 Never allow:
 
@@ -422,7 +422,7 @@ LLMs must NEVER directly mutate:
 
 Do not hard-code a permanent workforce.
 
-Momentum should dynamically discover agents.
+Kraven should dynamically discover agents.
 
 Normalize every provider into:
 
@@ -456,7 +456,7 @@ Provider Adapter
        ↓
 AgentCandidate
        ↓
-Momentum Router
+Kraven Router
 ```
 
 If external discovery is unavailable:
@@ -1892,7 +1892,7 @@ Cost: 16
 Quality: 87
 Latency: 24s
 
-Momentum:
+Kraven:
 Cost: 11
 Quality: 93
 Latency: 17s
@@ -2364,15 +2364,15 @@ A clean reset must support:
 
 Use this narrative:
 
-> "You give Momentum a business problem and a hard budget. Gemini acts
+> "You give Kraven a business problem and a hard budget. Gemini acts
 > as the Manager. It understands the task and determines which
-> capabilities are required. Momentum searches an agent ecosystem,
+> capabilities are required. Kraven searches an agent ecosystem,
 > filters and ranks available agents using capability, quality,
 > reliability, cost and latency, and constructs an optimized AI
 > workforce. Those agents execute the workflow under a scoped economic
 > contract. Funds are locked in escrow, work is independently verified,
 > and payment is released only when the result meets the agreed quality.
-> Every execution becomes performance data, so Momentum gets better at
+> Every execution becomes performance data, so Kraven gets better at
 > choosing agents and workflows over time. And if an agent attempts to
 > spend beyond its authorization, the deterministic Circuit Breaker
 > blocks it before the ledger changes."
@@ -2437,7 +2437,7 @@ Better Workforce
 
 # 58. FINAL PRODUCT PRINCIPLE
 
-Momentum should eventually become a system that learns:
+Kraven should eventually become a system that learns:
 
 > **Given this task, this budget, this quality requirement and this
 > deadline, what is the most efficient AI workforce I can assemble?**

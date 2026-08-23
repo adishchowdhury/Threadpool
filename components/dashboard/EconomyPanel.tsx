@@ -12,8 +12,8 @@ import type { SecurityEventRecord } from "@/lib/types";
 
 const ALGO_NETWORK = process.env.NEXT_PUBLIC_ALGOD_NETWORK || "testnet";
 const algoExplorerTxUrl = (txId: string) => `https://lora.algokit.io/${ALGO_NETWORK}/transaction/${txId}`;
-// Real Algorand transaction IDs are 52-char base32; older mock IDs (e.g.
-// "algo_mirror_...", "mock_tx_...") don't match and would 404 on any
+// Real Algorand transaction IDs are 52-char base32; mock/demo IDs (e.g.
+// "x402-mirror-...", "x402-tx-...") don't match and would 404 on any
 // explorer, so we only link out for IDs that look like the real thing.
 const isRealAlgorandTxId = (txId: string) => /^[A-Z2-7]{52}$/.test(txId);
 

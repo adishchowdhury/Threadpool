@@ -52,7 +52,7 @@ export async function verifyEthereumTransaction(
   expectedRecipient: string
 ): Promise<{ success: boolean; error?: string; txDetails?: EthereumTransactionResult }> {
   try {
-    if (txHash.startsWith("mock_") || !process.env.MANAGER_PRIVATE_KEY) {
+    if (txHash.startsWith("x402-") || !process.env.MANAGER_PRIVATE_KEY) {
       console.log(`[Ethereum] Verifying mock transaction: ${txHash}`);
       return {
         success: true,
@@ -150,12 +150,12 @@ export async function sendEthereumPayment(
     } catch (err: any) {
       console.error("[Ethereum] Real broadcast failed, falling back to mock:", err.message);
       const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-      txHash = `mock_tx_0x${randomHex.substring(0, 16)}`;
+      txHash = `x402-0x${randomHex.substring(0, 16)}`;
     }
   } else {
     console.log(`[Ethereum] MANAGER_PRIVATE_KEY not set — executing MOCK payment. Task: ${taskId}, Amount: ${amountWei} Wei to ${recipientAddress}`);
     const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    txHash = `mock_tx_0x${randomHex.substring(0, 16)}`;
+    txHash = `x402-0x${randomHex.substring(0, 16)}`;
   }
 
   await emitEvent(prisma, {

@@ -1,4 +1,4 @@
-import { eventBus, type MomentumEvent } from "@/lib/events/bus";
+﻿import { eventBus, type KravenEvent } from "@/lib/events/bus";
 
 export const dynamic = "force-dynamic";
 
@@ -9,11 +9,11 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream({
     start(controller) {
-      const send = (event: MomentumEvent) => {
+      const send = (event: KravenEvent) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       };
 
-      const listener = (event: MomentumEvent) => send(event);
+      const listener = (event: KravenEvent) => send(event);
       eventBus.on("event", listener);
 
       controller.enqueue(encoder.encode(`event: connected\ndata: {}\n\n`));

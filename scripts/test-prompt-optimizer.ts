@@ -1,4 +1,4 @@
-import { needsOptimization, getOptimizationDecision, PromptOptimizationRouter } from "../lib/optimizer/index.js";
+﻿import { needsOptimization, getOptimizationDecision, PromptOptimizationRouter } from "../lib/optimizer/index.js";
 import assert from "assert";
 
 async function testNeedsOptimization() {
@@ -52,7 +52,7 @@ async function testRouterFallback() {
 }
 
 async function main() {
-  console.log("=== MOMENTUM PROMPT OPTIMIZER TEST SUITE ===");
+  console.log("=== KRAVEN PROMPT OPTIMIZER TEST SUITE ===");
   try {
     await testNeedsOptimization();
     await testRouterFallback();

@@ -1,4 +1,4 @@
-// Momentum — Agentic Micro-Economy schema
+﻿// Kraven — Agentic Micro-Economy schema
 
 generator client {
   provider = "prisma-client"

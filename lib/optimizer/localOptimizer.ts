@@ -1,4 +1,4 @@
-import path from "path";
+﻿import path from "path";
 import fs from "fs";
 import { getLlama, LlamaChatSession, LlamaJsonSchemaGrammar, type Llama, type LlamaModel } from "node-llama-cpp";
 import { PromptOptimizer, PromptOptimizationInput, OptimizedTask, optimizedTaskSchema } from "./types";
@@ -72,7 +72,7 @@ export class LocalPromptOptimizer implements PromptOptimizer {
   async optimize(input: PromptOptimizationInput): Promise<OptimizedTask> {
     const model = await this.getModel();
 
-    const systemPrompt = `You are Momentum's Prompt Compiler.
+    const systemPrompt = `You are Kraven's Prompt Compiler.
 Your job is to transform a user's natural-language request into a structured task specification for a downstream AI Manager.
 Do not solve the user's task.
 Do not execute the task.

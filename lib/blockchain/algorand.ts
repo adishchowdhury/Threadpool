@@ -1,14 +1,20 @@
-import { createHash } from "crypto";
+﻿import { createHash } from "crypto";
 import { emitEvent } from "@/lib/events/emit";
 import { prisma } from "@/lib/prisma";
 import { isRealAlgorandConfigured, submitAnchorTransaction } from "@/lib/blockchain/algosdkClient";
+import {
+  getX402PayingFetch,
+  isRealX402PayerConfigured,
+  describeX402Failure,
+  getX402SettleResponse,
+} from "@/lib/blockchain/x402Algorand";
 
 const ALGOD_SERVER = process.env.ALGOD_SERVER || "https://testnet-api.algonode.cloud";
 const ALGOD_TOKEN = process.env.ALGOD_TOKEN || "";
 const ALGOD_NETWORK = process.env.ALGOD_NETWORK || "testnet";
 
-const DEMO_MANAGER_ADDRESS = "MOMENTUM402MANAGERACCOUNTXXXXXXXXXXXXXX";
-const DEMO_SERVICE_ADDRESS = "MOMENTUM402SERVICEACCOUNTXXXXXXXXXXXXXX";
+const DEMO_MANAGER_ADDRESS = "KRAVEN402MANAGERACCOUNTXXXXXXXXXXXXXX";
+const DEMO_SERVICE_ADDRESS = "KRAVEN402SERVICEACCOUNTXXXXXXXXXXXXXX";
 
 // Algorand addresses are 58-char base32 strings. We don't hold real signing
 // keys for every seeded agent, so each wallet gets a deterministic
@@ -55,7 +61,7 @@ export async function verifyAlgorandTransaction(
   expectedRecipient: string
 ): Promise<{ success: boolean; error?: string; txDetails?: AlgorandTransactionResult }> {
   try {
-    if (txId.startsWith("mock_") || !process.env.MANAGER_MNEMONIC) {
+    if (txId.startsWith("x402-") || !process.env.MANAGER_MNEMONIC) {
       console.log(`[Algorand] Verifying mock transaction: ${txId}`);
       return {
         success: true,
@@ -157,7 +163,7 @@ export async function sendAlgorandPayment(
     });
     txId = result.txId;
   } else {
-    txId = `mock_tx_${Math.random().toString(36).substring(2, 15)}`;
+    txId = `x402-tx-${Math.random().toString(36).substring(2, 15)}`;
   }
 
   await emitEvent(prisma, {
@@ -174,42 +180,59 @@ export async function sendAlgorandPayment(
 }
 
 // Settlement adapter used to mirror an internal virtual-token wallet
-// transfer (escrow lock/payout/refund) onto Algorand testnet as its own
-// transaction, so agent-to-agent payments have an on-chain record. The
-// internal ledger remains authoritative — this never gates or reverses it,
-// it only mirrors what the ledger already decided.
+// transfer (escrow lock/payout/refund) onto Algorand testnet, so agent-to-
+// agent payments have an on-chain record. The internal ledger remains
+// authoritative — this never gates or reverses it, it only mirrors what the
+// ledger already decided.
+//
+// The mirror is a REAL x402 payment (402 -> sign -> facilitator verify ->
+// facilitator settle) against /api/x402/ledger-mirror — see
+// lib/blockchain/x402Algorand.ts — not a self-payment note. `amountMicroAlgos`
+// carries the internal virtual-token amount (unchanged param name to keep
+// escrow.ts's call sites untouched); the route converts it to a real USDC
+// price via a dynamic price callback. Falls back to the old anchored-note
+// mock only when no real signer is configured (ALGOD_MNEMONIC/MANAGER_MNEMONIC
+// unset), and is labeled as such — it never claims x402 ran when it didn't.
 export async function mirrorTransaction(params: {
   fromAddress: string;
   toAddress: string;
   amountMicroAlgos: number;
   purpose: string;
 }): Promise<{ txId: string; network: string; status: "CONFIRMED" }> {
-  const isReal = isRealAlgorandConfigured();
+  const isReal = isRealX402PayerConfigured();
+  const tokens = Math.max(1, Math.round(params.amountMicroAlgos));
 
   console.log(
-    `[Algorand Mirror] ${isReal ? "REAL" : "MOCK"} ${params.amountMicroAlgos} microAlgos ${params.fromAddress.slice(0, 8)}... -> ${params.toAddress.slice(0, 8)}... (${params.purpose})`
+    `[Algorand Mirror] ${isReal ? "REAL x402" : "MOCK"} ${tokens} token(s) ${params.fromAddress.slice(0, 8)}... -> ${params.toAddress.slice(0, 8)}... (${params.purpose})`
   );
 
-  let txId: string;
-  if (isReal) {
-    const result = await submitAnchorTransaction({
-      v: 1,
-      kind: "ledger_mirror",
-      fromAddress: params.fromAddress,
-      toAddress: params.toAddress,
-      amountMicroAlgos: params.amountMicroAlgos,
-      purpose: params.purpose,
-    });
-    txId = result.txId;
-  } else {
-    txId = `algo_mirror_${Math.random().toString(36).substring(2, 15)}`;
+  if (!isReal) {
+    return {
+      txId: `x402-mirror-${Math.random().toString(36).substring(2, 15)}`,
+      network: ALGOD_NETWORK,
+      status: "CONFIRMED",
+    };
   }
 
-  return { txId, network: ALGOD_NETWORK, status: "CONFIRMED" };
+  const payFetch = getX402PayingFetch();
+  const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
+  const url = `${baseUrl}/api/x402/ledger-mirror?amount=${tokens}&purpose=${encodeURIComponent(params.purpose)}`;
+
+  const response = await payFetch(url, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`x402 ledger-mirror payment failed (HTTP ${response.status}): ${await describeX402Failure(response)}`);
+  }
+
+  const settlement = getX402SettleResponse(response);
+  if (!settlement) {
+    throw new Error("x402 ledger-mirror response missing a PAYMENT-RESPONSE header — cannot confirm real settlement");
+  }
+
+  return { txId: settlement.transaction, network: settlement.network, status: "CONFIRMED" };
 }
 
 export async function getTransactionStatus(txId: string): Promise<{ status: string; network: string }> {
-  if (txId.startsWith("mock_") || txId.startsWith("algo_mirror_")) {
+  if (txId.startsWith("x402-")) {
     return { status: "CONFIRMED", network: ALGOD_NETWORK };
   }
   try {

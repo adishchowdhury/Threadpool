@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useEventStream, type MomentumEvent } from "@/lib/hooks/useEventStream";
+import { useRouter } from "next/navigation";
+import { useEventStream, type KravenEvent } from "@/lib/hooks/useEventStream";
 import { FloatingChatBar } from "@/components/dashboard/FloatingChatBar";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { WorkflowPanel } from "@/components/dashboard/WorkflowPanel";
@@ -15,6 +16,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { firebaseConfigured } from "@/lib/firebase";
+import { useAuthUser } from "@/lib/use-auth-user";
 import type { AgentRecord, TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord, SecurityEventRecord } from "@/lib/types";
 import { FileText, History, RotateCcw, Store } from "lucide-react";
 import { toast } from "sonner";
@@ -37,18 +39,27 @@ function useElapsedSeconds(active: boolean) {
 }
 
 export function Dashboard() {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuthUser();
+  const authorized = !firebaseConfigured || !!user;
+
+  useEffect(() => {
+    if (firebaseConfigured && !authLoading && !user) {
+      router.replace("/");
+    }
+  }, [authLoading, user, router]);
+
   const { events } = useEventStream();
   const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [task, setTask] = useState<TaskRecord | null>(null);
   const [ledger, setLedger] = useState<CentralLedgerRecord[]>([]);
-  const [historicalEvents, setHistoricalEvents] = useState<MomentumEvent[]>([]);
+  const [historicalEvents, setHistoricalEvents] = useState<KravenEvent[]>([]);
   const [paymentIntents, setPaymentIntents] = useState<any[]>([]);
   const [blockchainTransactions, setBlockchainTransactions] = useState<any[]>([]);
   const [blockchainWorkflowEvents, setBlockchainWorkflowEvents] = useState<any[]>([]);
   const [algorandTransactions, setAlgorandTransactions] = useState<AlgorandLedgerTransactionRecord[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEventRecord[]>([]);
-  const [resetting, setResetting] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
@@ -235,26 +246,25 @@ export function Dashboard() {
     }
   }
 
-  async function handleReset() {
-    setResetting(true);
-    try {
-      await fetch("/api/reset", { method: "POST" });
-      setTaskId(null);
-      setTask(null);
-      setLedger([]);
-      setHistoricalEvents([]);
-      setReportOpen(false);
-      setPaymentIntents([]);
-      setBlockchainTransactions([]);
-      setBlockchainWorkflowEvents([]);
-      setAlgorandTransactions([]);
-      setSecurityEvents([]);
-      await refreshAgents();
-    } catch {
-      toast.error("Couldn't reach the server to reset the demo.");
-    } finally {
-      setResetting(false);
-    }
+  // Starts a fresh chat by clearing only the client's current-task view state.
+  // This does NOT call /api/reset and does NOT touch the database — past
+  // tasks, ledger entries, events, and workflow memory all remain intact and
+  // browsable from the History panel.
+  function handleNewChat() {
+    setTaskId(null);
+    setTask(null);
+    setLedger([]);
+    setHistoricalEvents([]);
+    setReportOpen(false);
+    setPaymentIntents([]);
+    setBlockchainTransactions([]);
+    setBlockchainWorkflowEvents([]);
+    setAlgorandTransactions([]);
+    setSecurityEvents([]);
+  }
+
+  if (!authorized) {
+    return <div className="fixed inset-0 bg-canvas" />;
   }
 
   return (
@@ -270,8 +280,8 @@ export function Dashboard() {
       </div>
 
       {/* Floating top bar */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-end gap-3 p-3 sm:p-4">
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5 rounded-md border border-panel-border bg-panel p-1 shadow-lg backdrop-blur-xl transition-colors">
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-center gap-3 p-3 sm:p-4">
+        <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 rounded-md border border-panel-border bg-panel p-1 shadow-lg backdrop-blur-xl transition-colors">
           {task?.finalOutput && (
             <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)} className="text-panel-foreground hover:bg-panel-elevated">
               <FileText className="size-3.5" /> <span className="hidden sm:inline">Report</span>
@@ -284,8 +294,8 @@ export function Dashboard() {
             <Store className="size-3.5" /> <span className="hidden sm:inline">Marketplace</span>
           </Button>
           <RogueDemoButton key={taskId ?? "none"} taskId={taskId} />
-          <Button variant="ghost" size="sm" onClick={handleReset} disabled={resetting} className="text-panel-foreground hover:bg-panel-elevated">
-            <RotateCcw className="size-3.5" /> <span className="hidden sm:inline">Reset</span>
+          <Button variant="ghost" size="sm" onClick={handleNewChat} className="text-panel-foreground hover:bg-panel-elevated">
+            <RotateCcw className="size-3.5" /> <span className="hidden sm:inline">New chat</span>
           </Button>
           <ThemeToggle />
           {firebaseConfigured && (

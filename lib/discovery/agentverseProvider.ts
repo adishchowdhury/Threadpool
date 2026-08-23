@@ -1,8 +1,8 @@
-import type { AgentDiscoveryProvider, DiscoverableAgent } from "@/lib/discovery/types";
+﻿import type { AgentDiscoveryProvider, DiscoverableAgent } from "@/lib/discovery/types";
 
 const SEARCH_URL = "https://agentverse.ai/v1/search/agents";
 
-// Momentum's capability vocabulary (see lib/manager/planner.ts) mapped to a
+// Kraven's capability vocabulary (see lib/manager/planner.ts) mapped to a
 // natural-language query for Agentverse's full-text agent search — there's
 // no structured "capability" field on the marketplace side to filter by.
 const CAPABILITY_SEARCH_TEXT: Record<string, string> = {
@@ -70,7 +70,7 @@ export class AgentverseProvider implements AgentDiscoveryProvider {
 
     const searchText = CAPABILITY_SEARCH_TEXT[capability];
     if (!searchText) {
-      // Not one of Momentum's known capabilities — nothing sensible to search for.
+      // Not one of Kraven's known capabilities — nothing sensible to search for.
       return [];
     }
 

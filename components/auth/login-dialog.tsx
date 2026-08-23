@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { signInWithPopup } from "firebase/auth";
@@ -44,7 +44,7 @@ export function LoginDialog({
         <DialogHeader>
           <DialogTitle>Sign in to continue</DialogTitle>
           <DialogDescription>
-            Momentum needs to know who&apos;s hiring the workforce before it spends your budget.
+            Kraven needs to know who&apos;s hiring the workforce before it spends your budget.
           </DialogDescription>
         </DialogHeader>
 

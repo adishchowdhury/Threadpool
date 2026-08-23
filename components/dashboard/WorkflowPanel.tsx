@@ -1,11 +1,11 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SubtaskRecord } from "@/lib/types";
-import type { MomentumEvent } from "@/lib/hooks/useEventStream";
+import type { KravenEvent } from "@/lib/hooks/useEventStream";
 import {
   Bot,
   CheckCircle2,
@@ -177,7 +177,7 @@ function shortLabel(value: string, fallback: string) {
   return compact.length > 0 ? compact : fallback;
 }
 
-function buildGraph(subtasks: SubtaskRecord[], events: MomentumEvent[]) {
+function buildGraph(subtasks: SubtaskRecord[], events: KravenEvent[]) {
   // Latest WEB_DATA_FETCHED event per subtask — a subtask can be reattempted
   // after failed QA, which re-runs the scrape, so take the most recent one.
   const webDataBySubtask = new Map<string, WebDataFetchedPayload>();
@@ -440,7 +440,7 @@ export function WorkflowPanel({
   subtasks: SubtaskRecord[];
   isPlanning?: boolean;
   memoryRecall?: WorkflowMemoryRecall | null;
-  events?: MomentumEvent[];
+  events?: KravenEvent[];
 }) {
   const graph = useMemo(() => buildGraph(subtasks, events), [subtasks, events]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -763,10 +763,6 @@ export function WorkflowPanel({
 
       {/* Workflow status chip */}
       <div className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-2">
-        <Badge variant="outline" className="gap-1 rounded-md border-panel-border bg-panel text-[10px] text-panel-muted shadow-lg backdrop-blur-xl">
-          <GitBranch className="size-3" />
-          Workflow Graph
-        </Badge>
         {subtasks.length > 0 && (
           <Badge
             variant={runningCount > 0 ? "secondary" : "outline"}

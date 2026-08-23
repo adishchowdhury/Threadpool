@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+﻿import { prisma } from "@/lib/prisma";
 import { emitEvent } from "@/lib/events/emit";
 
 function significantWords(text: string): string[] {
@@ -15,7 +15,7 @@ function significantWords(text: string): string[] {
 }
 
 // Deterministic similarity: word-overlap (Jaccard) over prior task prompts —
-// no neural network, just ranking. Good enough to demonstrate "Momentum
+// no neural network, just ranking. Good enough to demonstrate "Kraven
 // recalls a similar past workflow."
 export async function findSimilarWorkflow(taskType: string, prompt: string) {
   const candidates = await prisma.workflowMemory.findMany({

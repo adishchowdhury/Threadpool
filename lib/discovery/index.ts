@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+﻿import { prisma } from "@/lib/prisma";
 import { ensureAgentWallet } from "@/lib/economy/wallets";
 import type { AgentDiscoveryProvider, DiscoverableAgent } from "@/lib/discovery/types";
 import { LocalRegistryProvider } from "@/lib/discovery/localRegistryProvider";
@@ -45,7 +45,7 @@ async function syncExternalAgentToRegistry(agent: DiscoverableAgent, provider: s
   await ensureAgentWallet(agent.id);
 }
 
-// Aggregates all discovery providers, Agentverse first (per Momentum's
+// Aggregates all discovery providers, Agentverse first (per Kraven's
 // "real marketplace is the first choice, local Gemini roster is the
 // fallback" policy — see lib/manager/worker.ts for the execution-side half
 // of that policy). The local seeded registry always participates so the
