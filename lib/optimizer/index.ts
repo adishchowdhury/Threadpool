@@ -116,23 +116,6 @@ export class PromptOptimizationRouter implements PromptOptimizer {
         return await this.localOptimizer.optimize(input);
       } catch (err: any) {
         console.warn(`[Prompt Router] Local optimizer failed: ${err.message}. Falling back to Gemini...`);
-        // Return fallback status payload
-        return {
-          objective: input.prompt,
-          taskType: "other",
-          requiredCapabilities: ["general_assistance"],
-          scope: { geography: null, timeframe: null, domain: null },
-          constraints: { budget: null, deadline: null, format: null },
-          outputRequirements: { format: null, sections: [] },
-          verificationRequirements: {
-            required: false,
-            sourceGrounding: false,
-            externalValidation: false,
-            crossAgentVerification: false
-          },
-          ambiguities: ["Local Qwen model unavailable (fallback to default)"],
-          assumptions: [`Error: ${err.message}`]
-        };
       }
     }
 

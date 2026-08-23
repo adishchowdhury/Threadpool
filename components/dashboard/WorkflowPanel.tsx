@@ -357,12 +357,14 @@ function WorkflowNode({
   selected,
   onSelect,
   onDragStart,
+  onHoverChange,
 }: {
   node: GraphNode;
   pos: { x: number; y: number };
   selected: boolean;
   onSelect: (node: GraphNode) => void;
   onDragStart: (node: GraphNode, e: ReactPointerEvent) => void;
+  onHoverChange: (nodeId: string | null) => void;
 }) {
   const tone = statusTone(node.status);
   const isActive = ACTIVE_STATUSES.has(node.status);
@@ -371,6 +373,8 @@ function WorkflowNode({
     <div
       onPointerDown={(e) => onDragStart(node, e)}
       onClick={() => onSelect(node)}
+      onMouseEnter={() => onHoverChange(node.id)}
+      onMouseLeave={() => onHoverChange(null)}
       className={cn(
         "absolute cursor-grab select-none rounded-lg border p-2.5 text-left text-neutral-900 shadow-sm transition-shadow duration-200 active:cursor-grabbing dark:text-neutral-100 dark:shadow-none",
         tone.node,
@@ -440,6 +444,7 @@ export function WorkflowPanel({
 }) {
   const graph = useMemo(() => buildGraph(subtasks, events), [subtasks, events]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [offsets, setOffsets] = useState<Record<string, { x: number; y: number }>>({});
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 0.85 });
   const [smooth, setSmooth] = useState(true);
@@ -608,9 +613,23 @@ export function WorkflowPanel({
     (e.target as Element).setPointerCapture?.(e.pointerId);
   }
 
-  const selectedNode = graph.nodes.find((node) => node.id === selectedId) ?? graph.nodes.find((node) => node.kind === "task") ?? graph.nodes[0];
+  const selectedNode = graph.nodes.find((node) => node.id === selectedId) ?? null;
+  const hoveredNode = graph.nodes.find((node) => node.id === hoveredId) ?? null;
   const runningCount = subtasks.filter((subtask) => ACTIVE_STATUSES.has(subtask.status)).length;
   const doneCount = subtasks.filter((subtask) => subtask.status === "DONE").length;
+
+  let tooltipStyle: { left: number; top: number } | null = null;
+  if (hoveredNode) {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const width = rect?.width ?? 0;
+    const pos = positionOf(hoveredNode);
+    const screenX = viewport.x + (pos.x + NODE_WIDTH / 2) * viewport.scale;
+    const screenY = viewport.y + pos.y * viewport.scale;
+    tooltipStyle = {
+      left: width > 0 ? Math.min(Math.max(screenX, 150), width - 150) : screenX,
+      top: Math.max(screenY - 12, 8),
+    };
+  }
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-canvas">
@@ -671,9 +690,74 @@ export function WorkflowPanel({
                 selected={selectedNode?.id === node.id}
                 onSelect={(n) => setSelectedId(n.id)}
                 onDragStart={handleNodeDragStart}
+                onHoverChange={setHoveredId}
               />
             ))}
           </div>
+
+          {hoveredNode && tooltipStyle && (
+            <div
+              className="pointer-events-none absolute z-40 w-72 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-full overflow-hidden rounded-md border border-panel-border bg-panel p-3 text-panel-foreground shadow-xl backdrop-blur-xl"
+              style={{ left: tooltipStyle.left, top: tooltipStyle.top }}
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <span className="shrink-0 text-[10px] uppercase tracking-wide text-panel-muted">{hoveredNode.eyebrow}</span>
+                <span className="truncate text-sm font-semibold">{hoveredNode.title}</span>
+                <Badge variant="outline" className={cn("ml-auto shrink-0 text-[10px] ring-1", statusTone(hoveredNode.status).chip)}>
+                  {hoveredNode.status}
+                </Badge>
+              </div>
+
+              {hoveredNode.kind === "scraper" ? (
+                hoveredNode.webData ? (
+                  hoveredNode.webData.available ? (
+                    <div className="space-y-1.5 text-xs">
+                      <div className="text-panel-muted">
+                        Grounded {hoveredNode.subtask?.requiredCapability ?? "output"} in {hoveredNode.webData.sources.length} live source
+                        {hoveredNode.webData.sources.length === 1 ? "" : "s"}:
+                      </div>
+                      <ul className="space-y-1">
+                        {hoveredNode.webData.sources.map((s, i) => (
+                          <li key={i} className="truncate">
+                            <span className="text-panel-muted">{i + 1}. </span>
+                            <span title={s.url}>{s.title || s.url}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-panel-muted">
+                      No live data fetched — {hoveredNode.webData.reason ?? "unknown reason"}. Worker fell back to its own training data.
+                    </div>
+                  )
+                ) : (
+                  <div className="text-xs text-panel-muted">{hoveredNode.detail}</div>
+                )
+              ) : hoveredNode.subtask ? (
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                  <div className="col-span-2 truncate">
+                    <span className="text-panel-muted">Capability </span>
+                    <span>{hoveredNode.subtask?.requiredCapability ?? hoveredNode.detail}</span>
+                  </div>
+                  <div className="truncate">
+                    <span className="text-panel-muted">Agent </span>
+                    <span>{hoveredNode.subtask?.assignedAgent?.name ?? "Pending"}</span>
+                  </div>
+                  <div className="truncate">
+                    <span className="text-panel-muted">QA </span>
+                    <span>{hoveredNode.subtask?.qaScore != null ? `${hoveredNode.subtask.qaScore}/100` : "Not scored"}</span>
+                  </div>
+                  <div className="col-span-2 inline-flex items-center gap-1">
+                    <span className="text-panel-muted">Attempts </span>
+                    {hoveredNode.subtask && hoveredNode.subtask.attemptCount > 1 && <RotateCcw className="size-3 text-amber-500 dark:text-amber-200" />}
+                    {hoveredNode.subtask ? `${hoveredNode.subtask.attemptCount}/${hoveredNode.subtask.maxAttempts}` : "1/1"}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-panel-muted">{hoveredNode.detail}</div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -721,14 +805,8 @@ export function WorkflowPanel({
         </div>
       )}
 
-      {/*
-        Bottom-right control stack: zoom controls + selected node detail live in one
-        flex-col-reverse container anchored to a single safe corner. Stacking order
-        (detail card above the zoom row) falls out of flex layout automatically, so
-        nothing here depends on hand-tuned pixel offsets that break at odd viewport
-        sizes — it can never collide with the header, side panels, or chat bar.
-      */}
-      <div className="pointer-events-none absolute bottom-36 right-3 z-30 flex max-h-[calc(100%-6.5rem)] max-w-[calc(100vw-1.5rem)] flex-col-reverse items-end gap-2 sm:bottom-4 sm:right-4 sm:max-h-[calc(100%-6rem)]">
+      {/* Bottom-right zoom controls. Step detail now appears as a hover tooltip anchored to the node itself. */}
+      <div className="pointer-events-none absolute bottom-36 right-3 z-30 flex items-end gap-2 sm:bottom-4 sm:right-4">
         <div className="pointer-events-auto flex items-center gap-1 rounded-md border border-panel-border bg-panel p-1 shadow-lg backdrop-blur-xl transition-colors">
           <Button variant="ghost" size="icon" className="size-7 text-panel-muted hover:text-panel-foreground" onClick={() => smoothZoomBy(0.85)}>
             <Minus className="size-3.5" />
@@ -741,70 +819,6 @@ export function WorkflowPanel({
             <Maximize className="size-3.5" />
           </Button>
         </div>
-
-        {subtasks.length > 0 && selectedNode && selectedNode.kind === "scraper" && (
-          <div className="pointer-events-auto animate-in fade-in slide-in-from-bottom-1 w-72 max-w-full overflow-hidden rounded-md border border-panel-border bg-panel p-3 text-panel-foreground shadow-xl backdrop-blur-xl duration-300">
-            <div className="mb-2 flex items-center gap-2">
-              <span className="shrink-0 text-[10px] uppercase tracking-wide text-panel-muted">{selectedNode.eyebrow}</span>
-              <span className="truncate text-sm font-semibold">{selectedNode.title}</span>
-              <Badge variant="outline" className={cn("ml-auto shrink-0 text-[10px] ring-1", statusTone(selectedNode.status).chip)}>
-                {selectedNode.status}
-              </Badge>
-            </div>
-            {selectedNode.webData ? (
-              selectedNode.webData.available ? (
-                <div className="space-y-1.5 text-xs">
-                  <div className="text-panel-muted">Grounded {selectedNode.subtask?.requiredCapability ?? "output"} in {selectedNode.webData.sources.length} live source{selectedNode.webData.sources.length === 1 ? "" : "s"}:</div>
-                  <ul className="space-y-1">
-                    {selectedNode.webData.sources.map((s, i) => (
-                      <li key={i} className="truncate">
-                        <span className="text-panel-muted">{i + 1}. </span>
-                        <span title={s.url}>{s.title || s.url}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <div className="text-xs text-panel-muted">
-                  No live data fetched — {selectedNode.webData.reason ?? "unknown reason"}. Worker fell back to its own training data.
-                </div>
-              )
-            ) : (
-              <div className="text-xs text-panel-muted">{selectedNode.detail}</div>
-            )}
-          </div>
-        )}
-
-        {subtasks.length > 0 && selectedNode && selectedNode.kind !== "scraper" && selectedNode.subtask && (
-          <div className="pointer-events-auto animate-in fade-in slide-in-from-bottom-1 w-72 max-w-full overflow-hidden rounded-md border border-panel-border bg-panel p-3 text-panel-foreground shadow-xl backdrop-blur-xl duration-300">
-            <div className="mb-2 flex items-center gap-2">
-              <span className="shrink-0 text-[10px] uppercase tracking-wide text-panel-muted">{selectedNode.eyebrow}</span>
-              <span className="truncate text-sm font-semibold">{selectedNode.title}</span>
-              <Badge variant="outline" className={cn("ml-auto shrink-0 text-[10px] ring-1", statusTone(selectedNode.status).chip)}>
-                {selectedNode.status}
-              </Badge>
-            </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-              <div className="col-span-2 truncate">
-                <span className="text-panel-muted">Capability </span>
-                <span>{selectedNode.subtask?.requiredCapability ?? selectedNode.detail}</span>
-              </div>
-              <div className="truncate">
-                <span className="text-panel-muted">Agent </span>
-                <span>{selectedNode.subtask?.assignedAgent?.name ?? "Pending"}</span>
-              </div>
-              <div className="truncate">
-                <span className="text-panel-muted">QA </span>
-                <span>{selectedNode.subtask?.qaScore != null ? `${selectedNode.subtask.qaScore}/100` : "Not scored"}</span>
-              </div>
-              <div className="col-span-2 inline-flex items-center gap-1">
-                <span className="text-panel-muted">Attempts </span>
-                {selectedNode.subtask && selectedNode.subtask.attemptCount > 1 && <RotateCcw className="size-3 text-amber-500 dark:text-amber-200" />}
-                {selectedNode.subtask ? `${selectedNode.subtask.attemptCount}/${selectedNode.subtask.maxAttempts}` : "1/1"}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

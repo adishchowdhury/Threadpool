@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowUp, Loader2, Mic, Square, X } from "lucide-react";
+import { ArrowUp, Loader2, Mic, Sparkles, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthUser } from "@/lib/use-auth-user";
 import { firebaseConfigured } from "@/lib/firebase";
@@ -49,6 +49,8 @@ export function FloatingChatBar({
   const [budget, setBudget] = useState(30);
   const [qualityThreshold, setQualityThreshold] = useState(70);
   const [submitting, setSubmitting] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimized, setOptimized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
 
@@ -198,7 +200,32 @@ export function FloatingChatBar({
 
   useEffect(() => () => teardownRecording(), [teardownRecording]);
 
-  async function submit(optMode: "A" | "B" = "B", skipAuthCheck = false) {
+  async function optimizePrompt() {
+    if (!prompt.trim() || optimizing) return;
+    setOptimizing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/prompt-optimizer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      const data = await res.json();
+      const objective = data?.optimizedTask?.objective;
+      if (!res.ok || typeof objective !== "string" || !objective.trim()) {
+        setError(typeof data.error === "string" ? data.error : "Couldn't optimize the prompt.");
+        return;
+      }
+      setPrompt(objective);
+      setOptimized(true);
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setOptimizing(false);
+    }
+  }
+
+  async function submit(optMode: "A" | "B" = "A", skipAuthCheck = false) {
     if (!prompt.trim()) return;
     if (!skipAuthCheck && requiresAuth) {
       setLoginOpen(true);
@@ -228,13 +255,19 @@ export function FloatingChatBar({
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && !submitting) submit("B");
+      if (disabled || submitting || optimizing || !prompt.trim()) return;
+      if (e.ctrlKey || e.metaKey) {
+        submit("A");
+        return;
+      }
+      if (optimized) submit("A");
+      else optimizePrompt();
     }
   }
 
   return (
     <>
-    <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSuccess={() => submit("B", true)} />
+    <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSuccess={() => submit("A", true)} />
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 px-4 pb-5">
       <div className="pointer-events-auto w-full max-w-2xl">
         {error && (
@@ -302,10 +335,13 @@ export function FloatingChatBar({
           >
             <Textarea
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                setOptimized(false);
+              }}
               onKeyDown={handleKeyDown}
               rows={2}
-              disabled={disabled}
+              disabled={disabled || optimizing}
               placeholder="Describe the task for the AI workforce..."
               className="max-h-32 min-h-14 resize-none border-none bg-transparent px-3 py-3 text-[15px] text-panel-foreground shadow-none placeholder:text-panel-muted focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-100"
             />
@@ -315,7 +351,10 @@ export function FloatingChatBar({
                 <div className="flex items-center gap-0.5 rounded-full bg-panel-elevated p-0.5 text-[11px]">
                   <button
                     type="button"
-                    onClick={() => setPrompt(DEMO_PROMPT)}
+                    onClick={() => {
+                      setPrompt(DEMO_PROMPT);
+                      setOptimized(false);
+                    }}
                     disabled={disabled}
                     className={cn(
                       "rounded-full px-2.5 py-1 font-medium transition-colors",
@@ -326,7 +365,10 @@ export function FloatingChatBar({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPrompt((p) => (p === DEMO_PROMPT ? "" : p))}
+                    onClick={() => {
+                      setPrompt((p) => (p === DEMO_PROMPT ? "" : p));
+                      setOptimized(false);
+                    }}
                     disabled={disabled}
                     className={cn(
                       "rounded-full px-2.5 py-1 font-medium transition-colors",
@@ -385,23 +427,41 @@ export function FloatingChatBar({
                   >
                     <Mic className="size-4" />
                   </Button>
+                ) : optimized ? (
+                  <Button
+                    type="button"
+                    onClick={() => submit("A")}
+                    disabled={disabled || submitting || !prompt.trim()}
+                    className="size-8 shrink-0 rounded-full bg-accent-strong text-accent-strong-foreground transition-transform hover:opacity-90 active:scale-90 disabled:opacity-40"
+                    aria-label="Send"
+                  >
+                    {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowUp className="size-4" />}
+                  </Button>
                 ) : (
-                  <div className="flex gap-1.5">
-                    <Button
+                  <div className="flex items-center gap-1.5">
+                    <button
                       type="button"
                       onClick={() => submit("A")}
-                      disabled={disabled || submitting || !prompt.trim()}
-                      className="px-3 h-8 shrink-0 rounded-full bg-panel-elevated text-panel-foreground text-xs font-semibold hover:bg-panel-border transition-all active:scale-95 disabled:opacity-40"
+                      disabled={disabled || optimizing || submitting || !prompt.trim()}
+                      title="Send the prompt as-is, skipping optimization"
+                      className="rounded-full px-2.5 h-8 shrink-0 text-[11px] font-medium text-panel-muted hover:text-panel-foreground hover:bg-panel-elevated transition-colors disabled:opacity-40"
                     >
-                      {submitting ? <Loader2 className="size-3.5 animate-spin" /> : "Run Raw"}
-                    </Button>
+                      {submitting ? "Sending…" : "Run unoptimized"}
+                    </button>
                     <Button
                       type="button"
-                      onClick={() => submit("B")}
-                      disabled={disabled || submitting || !prompt.trim()}
-                      className="px-3 h-8 shrink-0 rounded-full bg-accent-strong text-accent-strong-foreground text-xs font-semibold hover:opacity-90 transition-all active:scale-95 disabled:opacity-40"
+                      onClick={optimizePrompt}
+                      disabled={disabled || optimizing || submitting || !prompt.trim()}
+                      className="gap-1.5 px-3 h-8 shrink-0 rounded-full bg-accent-strong text-accent-strong-foreground text-xs font-semibold hover:opacity-90 transition-all active:scale-95 disabled:opacity-40"
                     >
-                      {submitting ? <Loader2 className="size-3.5 animate-spin" /> : "Run Optimized"}
+                      {optimizing ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          <Sparkles className="size-3.5" />
+                          Optimize Prompt
+                        </>
+                      )}
                     </Button>
                   </div>
                 )}

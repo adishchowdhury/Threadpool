@@ -1,6 +1,6 @@
 import { generateText } from "ai";
 import { geminiModel, isGeminiConfigured } from "../manager/gemini";
-import { PromptOptimizer, PromptOptimizationInput, OptimizedTask } from "./types";
+import { PromptOptimizer, PromptOptimizationInput, OptimizedTask, optimizedTaskSchema } from "./types";
 
 export class GeminiPromptOptimizer implements PromptOptimizer {
   async optimize(input: PromptOptimizationInput): Promise<OptimizedTask> {
@@ -20,6 +20,6 @@ Ensure you detect all ambiguities and constraints. Do not hallucinate values. If
     });
 
     const parsed = JSON.parse(response.text.trim());
-    return parsed as OptimizedTask;
+    return optimizedTaskSchema.parse(parsed);
   }
 }
