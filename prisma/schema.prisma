@@ -1,4 +1,4 @@
-// Momentum — Agentic Micro-Economy schema (SQLite version with enums)
+// Momentum — Agentic Micro-Economy schema
 
 generator client {
   provider = "prisma-client"
@@ -112,6 +112,14 @@ model Agent {
   endpoint     String?
   status       AgentStatus @default(ACTIVE)
   isSeeded     Boolean     @default(true)
+
+  // "local" (Gemini-backed demo worker) or "agentverse" (real agent
+  // discovered from the Agentverse marketplace; `endpoint` then holds its
+  // real agent address). See lib/discovery/agentverseProvider.ts.
+  provider String  @default("local")
+  // For provider="local": which Gemini model tier this agent is priced
+  // against (see lib/manager/gemini.ts). Null for provider="agentverse".
+  model    String?
 
   // cached reputation stats, recomputed by ReputationService
   totalJobs    Int      @default(0)

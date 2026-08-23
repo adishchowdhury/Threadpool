@@ -9,13 +9,14 @@ import { EconomyPanel } from "@/components/dashboard/EconomyPanel";
 import { FinalOutputPanel } from "@/components/dashboard/FinalOutputPanel";
 import { RogueDemoButton } from "@/components/dashboard/RogueDemoButton";
 import { ChatHistoryPanel } from "@/components/dashboard/ChatHistoryPanel";
+import { MarketplacePanel } from "@/components/dashboard/MarketplacePanel";
 import { UserMenu } from "@/components/dashboard/UserMenu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { firebaseConfigured } from "@/lib/firebase";
-import type { AgentRecord, TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord } from "@/lib/types";
-import { FileText, History, RotateCcw } from "lucide-react";
+import type { AgentRecord, TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord, SecurityEventRecord } from "@/lib/types";
+import { FileText, History, RotateCcw, Store } from "lucide-react";
 import { toast } from "sonner";
 
 const ACTIVE_STATUSES = new Set(["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA"]);
@@ -37,7 +38,7 @@ function useElapsedSeconds(active: boolean) {
 
 export function Dashboard() {
   const { events } = useEventStream();
-  const [, setAgents] = useState<AgentRecord[]>([]);
+  const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [task, setTask] = useState<TaskRecord | null>(null);
   const [ledger, setLedger] = useState<CentralLedgerRecord[]>([]);
@@ -46,9 +47,11 @@ export function Dashboard() {
   const [blockchainTransactions, setBlockchainTransactions] = useState<any[]>([]);
   const [blockchainWorkflowEvents, setBlockchainWorkflowEvents] = useState<any[]>([]);
   const [algorandTransactions, setAlgorandTransactions] = useState<AlgorandLedgerTransactionRecord[]>([]);
+  const [securityEvents, setSecurityEvents] = useState<SecurityEventRecord[]>([]);
   const [resetting, setResetting] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(true);
   const [economyOpen, setEconomyOpen] = useState(true);
 
@@ -129,6 +132,7 @@ export function Dashboard() {
       setBlockchainTransactions(data.blockchainTransactions ?? []);
       setBlockchainWorkflowEvents(data.blockchainWorkflowEvents ?? []);
       setAlgorandTransactions(data.algorandTransactions ?? []);
+      setSecurityEvents(data.securityEvents ?? []);
     } catch {
       // non-critical panel — fail silently, the next poll will retry
     }
@@ -154,6 +158,10 @@ export function Dashboard() {
   useEffect(() => {
     refreshAgents();
   }, []);
+
+  useEffect(() => {
+    if (marketplaceOpen) refreshAgents();
+  }, [marketplaceOpen]);
 
   // Refresh task/ledger snapshots whenever a relevant event lands for the
   // currently-selected task — the SSE stream tells us WHEN to refetch, the
@@ -192,6 +200,25 @@ export function Dashboard() {
     return deduped.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [events, historicalEvents, taskId]);
 
+  // Surfaces the Manager's real "I've seen something like this before" signal
+  // (lib/manager/workflowMemory.ts) — the orchestrator emits this once, at
+  // planning time, only when a genuinely similar past successful workflow
+  // was found. Never fabricated: absent unless that lookup actually matched.
+  const memoryRecall = useMemo(() => {
+    const recalled = taskEvents.find(
+      (e) => e.eventType === "WORKFLOW_MEMORY_STORED" && (e.payload as any)?.recalled === true,
+    );
+    if (!recalled) return null;
+    const payload = recalled.payload as {
+      similarity: number;
+      agentsUsed: string[];
+      historicalCost: number;
+      historicalLatencyMs: number;
+      historicalQuality: number;
+    };
+    return payload;
+  }, [taskEvents]);
+
   const isRunning = task ? ACTIVE_STATUSES.has(task.status) : false;
   const elapsedSeconds = useElapsedSeconds(isRunning);
 
@@ -220,6 +247,8 @@ export function Dashboard() {
       setPaymentIntents([]);
       setBlockchainTransactions([]);
       setBlockchainWorkflowEvents([]);
+      setAlgorandTransactions([]);
+      setSecurityEvents([]);
       await refreshAgents();
     } catch {
       toast.error("Couldn't reach the server to reset the demo.");
@@ -232,7 +261,12 @@ export function Dashboard() {
     <div className="fixed inset-0 bg-canvas">
       {/* Full-screen workflow canvas */}
       <div className="absolute inset-0">
-        <WorkflowPanel subtasks={task?.subtasks ?? []} isPlanning={task?.status === "CREATED" || task?.status === "PLANNING"} />
+        <WorkflowPanel
+          subtasks={task?.subtasks ?? []}
+          isPlanning={task?.status === "CREATED" || task?.status === "PLANNING"}
+          memoryRecall={memoryRecall}
+          events={taskEvents}
+        />
       </div>
 
       {/* Floating top bar */}
@@ -245,6 +279,9 @@ export function Dashboard() {
           )}
           <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)} className="text-panel-foreground hover:bg-panel-elevated">
             <History className="size-3.5" /> <span className="hidden sm:inline">History</span>
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setMarketplaceOpen(true)} className="text-panel-foreground hover:bg-panel-elevated">
+            <Store className="size-3.5" /> <span className="hidden sm:inline">Marketplace</span>
           </Button>
           <RogueDemoButton key={taskId ?? "none"} taskId={taskId} />
           <Button variant="ghost" size="sm" onClick={handleReset} disabled={resetting} className="text-panel-foreground hover:bg-panel-elevated">
@@ -268,6 +305,7 @@ export function Dashboard() {
         blockchainTransactions={blockchainTransactions}
         blockchainWorkflowEvents={blockchainWorkflowEvents}
         algorandTransactions={algorandTransactions}
+        securityEvents={securityEvents}
         open={economyOpen}
         onOpenChange={handleEconomyOpenChange}
       />
@@ -276,6 +314,7 @@ export function Dashboard() {
 
       <FinalOutputPanel task={task} open={reportOpen} onOpenChange={setReportOpen} />
       <ChatHistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} activeTaskId={taskId} onSelect={handleSelectFromHistory} />
+      <MarketplacePanel agents={agents} open={marketplaceOpen} onOpenChange={setMarketplaceOpen} />
     </div>
   );
 }

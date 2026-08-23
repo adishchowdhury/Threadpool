@@ -1,0 +1,239 @@
+// Web scraper used to ground research-type worker outputs in current data.
+// Gemini's training data has a cutoff and can be stale for fast-moving
+// facts (funding rounds, pricing, market sizing, recent news); this module
+// fetches and cleans a handful of live web pages so the worker prompt can
+// cite something newer than the model's weights.
+//
+// Page fetches route through Bright Data's Scraping Browser (a remote,
+// anti-bot-hardened Chromium reached over CDP) when BRIGHTDATA_BROWSER_WS
+// is configured — it renders pages and bypasses bot blocks that a plain
+// fetch() hits on many sites. Without that env var it falls straight back
+// to a direct fetch, so the module works with zero external credentials
+// too. Search (finding which URLs to fetch) always goes through
+// DuckDuckGo's no-JS HTML result page — no official API, no key required.
+//
+// Every failure degrades to "no live data" rather than throwing, per the
+// project's fallback-transparency rule; callers must label the source
+// honestly and never claim scraped data when none was fetched.
+
+const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+const SEARCH_TIMEOUT_MS = 6000;
+// Generous: a Bright Data fetch pays for both a fresh CDP session handshake
+// and the page navigation itself, which together routinely run past 8s.
+const PAGE_TIMEOUT_MS = 15000;
+const BRIGHTDATA_CONNECT_TIMEOUT_MS = 10000;
+const MAX_EXCERPT_CHARS = 1500;
+
+export type WebSearchResult = { title: string; url: string; snippet: string };
+export type ScrapedPage = { url: string; title: string; excerpt: string };
+export type WebContext = {
+  available: boolean;
+  query: string;
+  fetchedAt: string;
+  results: ScrapedPage[];
+  reason?: string;
+};
+
+export function isBrightDataConfigured(): boolean {
+  return Boolean(process.env.BRIGHTDATA_BROWSER_WS);
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal, headers: { "User-Agent": USER_AGENT, ...init?.headers } });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Playwright's own `timeout` options are a soft ceiling over an unreliable
+// remote proxy — a hung TLS/WS handshake to Bright Data has been observed
+// to blow well past the configured connect + navigation timeouts (minutes,
+// not seconds). This is a hard backstop so one flaky Bright Data session
+// can never stall a worker subtask indefinitely; the abandoned connect/
+// navigate promise is left to resolve or reject on its own and is swallowed
+// so it doesn't surface as an unhandled rejection.
+function withHardDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  promise.catch(() => {});
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`${label} exceeded hard deadline of ${ms}ms`)), ms)),
+  ]);
+}
+
+// Fetches a URL's rendered HTML through Bright Data's Scraping Browser
+// (real Chromium behind Bright Data's anti-bot/proxy network). Throws on
+// any failure so callers can fall back to a direct fetch.
+//
+// Connects fresh per call rather than reusing one session: Bright Data
+// caps how many distinct domains a single Scraping Browser session may
+// navigate to (this account trips "navigate_domains_limit" after just
+// one), so a shared session breaks as soon as a second domain shows up —
+// which is the normal case here, since gatherWebContext scrapes several
+// different sites per query.
+async function fetchViaBrightDataBrowser(url: string, timeoutMs: number): Promise<string> {
+  const fetchPromise = (async () => {
+    const { chromium } = await import("playwright");
+    const browser = await chromium.connectOverCDP(process.env.BRIGHTDATA_BROWSER_WS!, { timeout: BRIGHTDATA_CONNECT_TIMEOUT_MS });
+    try {
+      const context = browser.contexts()[0] ?? (await browser.newContext());
+      const page = await context.newPage();
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: timeoutMs });
+      return await page.content();
+    } finally {
+      await browser.close().catch(() => {});
+    }
+  })();
+  return withHardDeadline(fetchPromise, BRIGHTDATA_CONNECT_TIMEOUT_MS + timeoutMs + 5000, `Bright Data fetch for ${url}`);
+}
+
+// Fetches a URL's HTML, preferring Bright Data's Scraping Browser when
+// configured (handles anti-bot pages a plain fetch gets blocked on) and
+// falling back to a direct fetch otherwise or on Bright Data failure.
+// `viaBrightData` lets callers opt out for endpoints that don't need
+// anti-bot handling — DuckDuckGo's plain HTML results page, notably,
+// where a direct fetch is both reliable and much faster than paying for
+// a fresh Scraping Browser session.
+async function fetchHtml(
+  url: string,
+  timeoutMs: number,
+  viaBrightData = true,
+): Promise<{ html: string; via: "brightdata" | "direct" }> {
+  if (viaBrightData && isBrightDataConfigured()) {
+    try {
+      return { html: await fetchViaBrightDataBrowser(url, timeoutMs), via: "brightdata" };
+    } catch (err) {
+      console.error(`[WebScraper] Bright Data fetch failed for ${url}, falling back to direct fetch:`, err);
+    }
+  }
+  const res = await fetchWithTimeout(url, timeoutMs, { method: "GET" });
+  if (!res.ok) throw new Error(`Fetch failed with status ${res.status}`);
+  return { html: await res.text(), via: "direct" };
+}
+
+function decodeHtmlEntities(input: string): string {
+  return input
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
+function stripHtmlToText(html: string): string {
+  const withoutNoise = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<header[\s\S]*?<\/header>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  const textOnly = withoutNoise.replace(/<[^>]+>/g, " ");
+  return decodeHtmlEntities(textOnly).replace(/\s+/g, " ").trim();
+}
+
+function extractDuckDuckGoUrl(rawHref: string): string | null {
+  try {
+    if (rawHref.startsWith("//")) rawHref = `https:${rawHref}`;
+    const parsed = new URL(rawHref, "https://duckduckgo.com");
+    const uddg = parsed.searchParams.get("uddg");
+    if (uddg) return decodeURIComponent(uddg);
+    if (/^https?:\/\//.test(rawHref)) return rawHref;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Scrapes DuckDuckGo's no-JS HTML result page. No official API, no key
+// required — this is the same page a browser gets with JS disabled.
+export async function searchWeb(query: string, maxResults = 4): Promise<WebSearchResult[]> {
+  const { html } = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, SEARCH_TIMEOUT_MS, false);
+
+  const results: WebSearchResult[] = [];
+  const resultBlockRe = /<div class="result results_links[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/g;
+  const linkRe = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/;
+  const snippetRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/;
+
+  const blocks = html.match(resultBlockRe) ?? [];
+  for (const block of blocks) {
+    const linkMatch = block.match(linkRe);
+    if (!linkMatch) continue;
+    const url = extractDuckDuckGoUrl(linkMatch[1]);
+    if (!url) continue;
+    const title = stripHtmlToText(linkMatch[2]);
+    const snippetMatch = block.match(snippetRe);
+    const snippet = snippetMatch ? stripHtmlToText(snippetMatch[1]) : "";
+    results.push({ title, url, snippet });
+    if (results.length >= maxResults) break;
+  }
+  return results;
+}
+
+export async function scrapePage(url: string): Promise<ScrapedPage> {
+  const { html } = await fetchHtml(url, PAGE_TIMEOUT_MS);
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = titleMatch ? decodeHtmlEntities(titleMatch[1]).trim() : url;
+  const text = stripHtmlToText(html);
+  return { url, title, excerpt: text.slice(0, MAX_EXCERPT_CHARS) };
+}
+
+// Top-level entry point for workers: search the live web for `query`,
+// scrape the top results, and return cleaned excerpts. Never throws —
+// on any failure (network, blocked, timeout) it returns
+// `available: false` with a human-readable reason so callers can label
+// the fallback honestly instead of silently pretending data was fetched.
+export async function gatherWebContext(query: string, maxResults = 2): Promise<WebContext> {
+  const fetchedAt = new Date().toISOString();
+  try {
+    const searchResults = await searchWeb(query, maxResults);
+    if (searchResults.length === 0) {
+      return { available: false, query, fetchedAt, results: [], reason: "Web search returned no results" };
+    }
+
+    // Scraped sequentially, not in parallel: Bright Data's Scraping Browser
+    // enforces a per-session concurrent-navigation limit, so firing all
+    // page fetches at once causes the later ones to be rejected outright
+    // rather than queued.
+    const results: ScrapedPage[] = [];
+    for (const r of searchResults) {
+      try {
+        const page = await scrapePage(r.url);
+        if (page.excerpt.length > 0) results.push(page);
+      } catch {
+        // A single page failing to scrape (paywall, block, timeout) still
+        // leaves its search snippet usable as a lightweight fallback.
+        if (r.snippet) results.push({ url: r.url, title: r.title, excerpt: r.snippet });
+      }
+    }
+
+    if (results.length === 0) {
+      return { available: false, query, fetchedAt, results: [], reason: "All page fetches failed" };
+    }
+    return { available: true, query, fetchedAt, results };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : "Unknown web scraping error";
+    return { available: false, query, fetchedAt, results: [], reason };
+  }
+}
+
+// Renders web context into a labeled block suitable for inclusion in a
+// worker prompt. Always explicit about whether live data was actually
+// obtained, so the model (and the human reading the prompt in logs) can't
+// mistake a fallback for a real citation.
+export function formatWebContextForPrompt(ctx: WebContext): string {
+  if (!ctx.available || ctx.results.length === 0) {
+    return `\n\n[LIVE WEB DATA UNAVAILABLE — ${ctx.reason ?? "no results"}. Rely on your training data and say so if precision on recent figures matters.]`;
+  }
+  const sources = ctx.results
+    .map((r, i) => `Source ${i + 1}: ${r.title} (${r.url})\n${r.excerpt}`)
+    .join("\n\n");
+  return `\n\n[LIVE WEB DATA — fetched ${ctx.fetchedAt} for query "${ctx.query}". Use this to ground and update anything your training data may have stale, but still use your own judgment; cite sources by URL where you rely on them.]\n\n${sources}`;
+}

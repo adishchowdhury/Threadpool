@@ -66,7 +66,8 @@ Hard token budget: ${params.budget}
 Keep the plan lean — the fewer subtasks that still cover the task well, the better, since each one costs tokens.`,
     });
     return { plan: object, source: "gemini" };
-  } catch {
+  } catch (err) {
+    console.error("[Manager] Gemini task decomposition failed, using local fallback plan:", err);
     return { plan: fallbackPlan(params.prompt), source: "local_fallback" };
   }
 }

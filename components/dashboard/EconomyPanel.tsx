@@ -6,8 +6,9 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord } from "@/lib/types";
 import { useDraggable } from "@/lib/hooks/useDraggable";
-import { ChevronLeft, ChevronRight, GripVertical, Wallet, ExternalLink } from "lucide-react";
+import { ChevronLeft, ChevronRight, GripVertical, Wallet, ExternalLink, ShieldCheck, ShieldAlert } from "lucide-react";
 import { TrustPanel, type BlockchainWorkflowEventRecord } from "@/components/dashboard/TrustPanel";
+import type { SecurityEventRecord } from "@/lib/types";
 
 const ALGO_NETWORK = process.env.NEXT_PUBLIC_ALGOD_NETWORK || "testnet";
 const algoExplorerTxUrl = (txId: string) => `https://lora.algokit.io/${ALGO_NETWORK}/transaction/${txId}`;
@@ -39,6 +40,7 @@ export function EconomyPanel({
   blockchainTransactions = [],
   blockchainWorkflowEvents = [],
   algorandTransactions = [],
+  securityEvents = [],
   open,
   onOpenChange,
 }: {
@@ -48,6 +50,7 @@ export function EconomyPanel({
   blockchainTransactions?: any[];
   blockchainWorkflowEvents?: BlockchainWorkflowEventRecord[];
   algorandTransactions?: AlgorandLedgerTransactionRecord[];
+  securityEvents?: SecurityEventRecord[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -113,6 +116,34 @@ export function EconomyPanel({
             <Stat label="Released" value={released} tone="success" />
             <Stat label="Refunded" value={refunded} />
             <Stat label="Blocked Attempts" value={blocked} tone={blocked > 0 ? "danger" : undefined} />
+          </div>
+
+          <Separator className="bg-panel-border" />
+          <div
+            className={cn(
+              "rounded-md border p-2.5 text-xs",
+              blocked > 0
+                ? "border-destructive/40 bg-destructive/10 text-destructive"
+                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+            )}
+          >
+            <div className="flex items-center gap-1.5 font-semibold uppercase tracking-wide">
+              {blocked > 0 ? <ShieldAlert className="size-3.5" /> : <ShieldCheck className="size-3.5" />}
+              {blocked > 0 ? "Circuit Breaker Triggered" : "System Secure"}
+            </div>
+            <div className="mt-1 font-mono text-[11px] text-panel-foreground">
+              Authorized spend: {locked + released}t / {task?.budget ?? "—"}t
+            </div>
+            {securityEvents.length > 0 && (
+              <div className="mt-1.5 border-t border-current/20 pt-1.5 font-mono text-[10px] text-panel-foreground">
+                <div className="text-panel-muted">Latest blocked attempt:</div>
+                <div>
+                  {securityEvents[0].agentId ?? "unknown agent"} requested{" "}
+                  {securityEvents[0].requestedAmount ?? "?"}t, authorized {securityEvents[0].allowedAmount ?? "?"}t
+                </div>
+                <div className="text-panel-muted">{securityEvents[0].reason}</div>
+              </div>
+            )}
           </div>
 
           {paymentIntents.length > 0 && (

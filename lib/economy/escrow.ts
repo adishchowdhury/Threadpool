@@ -105,6 +105,9 @@ async function recordBlocked(
       type: "CIRCUIT_BREAKER_BLOCK",
       reason: params.reason,
       payload: JSON.stringify({ amount: params.amount, purpose: params.purpose }),
+      requestedAmount: params.amount,
+      allowedAmount: params.remainingBudget,
+      severity: isSevereViolation(params.amount, params.remainingBudget) ? "CRITICAL" : "HIGH",
     },
   });
 

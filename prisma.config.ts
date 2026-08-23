@@ -9,6 +9,9 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // The app's real runtime database (see lib/prisma.ts) is the local
+    // SQLite file, not DATABASE_URL (that env var points at an unused
+    // Postgres instance — a pre-existing loose end, left as-is).
+    url: "file:./dev.db",
   },
 });

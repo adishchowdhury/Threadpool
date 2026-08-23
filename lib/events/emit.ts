@@ -29,6 +29,7 @@ export const EVENT_TYPES = [
   "REPUTATION_UPDATED",
   "WORKFLOW_MEMORY_STORED",
   "WORKFLOW_ANCHORED",
+  "WEB_DATA_FETCHED",
 ] as const;
 
 export type MomentumEventType = (typeof EVENT_TYPES)[number];

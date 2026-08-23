@@ -48,7 +48,15 @@ export async function POST(request: Request) {
   });
 
   if (lock.blocked) {
-    return NextResponse.json({ ok: true, stage: "lock_blocked", reason: lock.reason });
+    await prisma.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
+    return NextResponse.json({
+      ok: true,
+      stage: "lock_blocked",
+      authorizedAmount,
+      requestedAmount: authorizedAmount,
+      blocked: true,
+      reason: lock.reason,
+    });
   }
 
   await emitEvent(prisma, {

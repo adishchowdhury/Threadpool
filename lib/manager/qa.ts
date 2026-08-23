@@ -57,7 +57,8 @@ ${params.output}
 Return passed=true only if score >= ${params.qualityThreshold} AND the output substantively addresses the instruction.`,
     });
     return { verdict: object, source: "gemini" };
-  } catch {
+  } catch (err) {
+    console.error("[QA] Gemini quality review failed, using local fallback verdict:", err);
     return { verdict: fallbackVerdict(params.output, params.qualityThreshold), source: "local_fallback" };
   }
 }

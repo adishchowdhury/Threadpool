@@ -41,6 +41,21 @@ export interface AgentRecord {
   avgLatencyMs: number;
   avgCost: number;
   totalJobs: number;
+  provider: string;
+  model: string | null;
+  endpoint: string | null;
+}
+
+export interface SecurityEventRecord {
+  id: string;
+  taskId: string | null;
+  agentId: string | null;
+  type: string;
+  reason: string;
+  severity: string | null;
+  requestedAmount: number | null;
+  allowedAmount: number | null;
+  createdAt: string;
 }
 
 export interface CentralLedgerRecord {

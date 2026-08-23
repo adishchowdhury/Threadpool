@@ -54,7 +54,14 @@ export async function runTask(taskId: string) {
       taskId,
       actor: "system",
       eventType: "WORKFLOW_MEMORY_STORED", // reused as "recalled" signal for the UI timeline
-      payload: { recalled: true, similarity: memory.similarity, agentsUsed: JSON.parse(memory.memory.agentsUsed) },
+      payload: {
+        recalled: true,
+        similarity: memory.similarity,
+        agentsUsed: JSON.parse(memory.memory.agentsUsed),
+        historicalCost: memory.memory.cost,
+        historicalLatencyMs: memory.memory.latencyMs,
+        historicalQuality: memory.memory.quality,
+      },
     });
   }
 
@@ -236,6 +243,7 @@ export async function runTask(taskId: string) {
         feedback,
         taskId: taskId,
         agentId: active.agent.id,
+        subtaskId: subtask.id,
       });
       const actualLatencyMs = Date.now() - executionStart;
 

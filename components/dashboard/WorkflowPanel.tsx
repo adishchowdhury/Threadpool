@@ -5,11 +5,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SubtaskRecord } from "@/lib/types";
+import type { MomentumEvent } from "@/lib/hooks/useEventStream";
 import {
   Bot,
   CheckCircle2,
   Clock3,
   GitBranch,
+  Globe,
+  History,
   Loader2,
   Maximize,
   MessageSquareText,
@@ -22,9 +25,41 @@ import {
   XCircle,
 } from "lucide-react";
 
+// Capabilities the worker (lib/manager/worker.ts) attempts a live web-scrape
+// pass for before calling Gemini. Kept in sync with
+// WEB_GROUNDED_CAPABILITIES there — this list only decides whether the
+// graph *shows* a scraper node, the backend list decides whether scraping
+// actually runs.
+const WEB_GROUNDED_CAPABILITIES = new Set([
+  "market_research",
+  "financial_analysis",
+  "data_extraction",
+  "competitive_analysis",
+]);
+
+type WebDataFetchedPayload = {
+  subtaskId: string | null;
+  capability: string;
+  available: boolean;
+  sources: { url: string; title: string }[];
+  reason: string | null;
+};
+
+function isWebDataFetchedPayload(value: unknown): value is WebDataFetchedPayload {
+  return typeof value === "object" && value !== null && "available" in value && "sources" in value;
+}
+
+export interface WorkflowMemoryRecall {
+  similarity: number;
+  agentsUsed: string[];
+  historicalCost: number;
+  historicalLatencyMs: number;
+  historicalQuality: number;
+}
+
 const NODE_WIDTH = 164;
 const NODE_HEIGHT = 84;
-const CANVAS_HEIGHT = 460;
+const CANVAS_HEIGHT = 540;
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 2;
 
@@ -44,8 +79,9 @@ type GraphNode = {
   status: string;
   x: number;
   y: number;
-  kind: "trigger" | "task" | "agent" | "qa" | "output";
+  kind: "trigger" | "task" | "agent" | "qa" | "output" | "scraper";
   subtask?: SubtaskRecord;
+  webData?: WebDataFetchedPayload;
 };
 
 type GraphEdge = {
@@ -141,7 +177,16 @@ function shortLabel(value: string, fallback: string) {
   return compact.length > 0 ? compact : fallback;
 }
 
-function buildGraph(subtasks: SubtaskRecord[]) {
+function buildGraph(subtasks: SubtaskRecord[], events: MomentumEvent[]) {
+  // Latest WEB_DATA_FETCHED event per subtask — a subtask can be reattempted
+  // after failed QA, which re-runs the scrape, so take the most recent one.
+  const webDataBySubtask = new Map<string, WebDataFetchedPayload>();
+  for (const event of events) {
+    if (event.eventType !== "WEB_DATA_FETCHED" || !isWebDataFetchedPayload(event.payload)) continue;
+    if (!event.payload.subtaskId) continue;
+    webDataBySubtask.set(event.payload.subtaskId, event.payload);
+  }
+
   const sorted = subtasks.slice().sort((a, b) => a.sequence - b.sequence);
   const width = Math.max(780, 300 + sorted.length * 212);
   const trigger: GraphNode = {
@@ -191,6 +236,42 @@ function buildGraph(subtasks: SubtaskRecord[]) {
       subtask: node.subtask,
     }));
 
+  const scraperNodes = taskNodes
+    .filter((node) => node.subtask && WEB_GROUNDED_CAPABILITIES.has(node.subtask.requiredCapability))
+    .map<GraphNode>((node) => {
+      const webData = node.subtask ? webDataBySubtask.get(node.subtask.id) : undefined;
+      const hasPassedExecuting = node.status === "AWAITING_QA" || node.status === "DONE" || node.status === "FAILED";
+      let status: string;
+      let detail: string;
+      if (webData) {
+        status = webData.available ? "DONE" : "PENDING";
+        detail = webData.available ? `${webData.sources.length} source${webData.sources.length === 1 ? "" : "s"}` : "No live data";
+      } else if (node.status === "EXECUTING") {
+        status = "EXECUTING";
+        detail = "Scraping web...";
+      } else if (hasPassedExecuting) {
+        // Subtask moved past EXECUTING before the event landed (fast run) —
+        // read as "no live data" rather than stuck forever on "scraping".
+        status = "PENDING";
+        detail = "No live data";
+      } else {
+        status = "WAITING";
+        detail = "Awaiting turn";
+      }
+      return {
+        id: `${node.id}-scraper`,
+        title: "Scraper",
+        eyebrow: "Web Data",
+        detail,
+        status,
+        x: node.x + 18,
+        y: 438,
+        kind: "scraper",
+        subtask: node.subtask,
+        webData,
+      };
+    });
+
   const qaNodes = taskNodes
     .filter((node) => node.subtask?.qaScore != null || node.status === "AWAITING_QA")
     .map<GraphNode>((node) => ({
@@ -234,7 +315,15 @@ function buildGraph(subtasks: SubtaskRecord[]) {
     }
   }
 
-  return { nodes: [...mainNodes, ...agentNodes, ...qaNodes], edges, width, height: CANVAS_HEIGHT };
+  for (const node of scraperNodes) {
+    const taskNode = taskNodes.find((task) => `${task.id}-scraper` === node.id);
+    if (taskNode) {
+      const active = ACTIVE_STATUSES.has(taskNode.status) || taskNode.status === "DONE";
+      edges.push({ id: `${taskNode.id}-scraper-edge`, from: taskNode, to: node, active, dashed: true, label: "scrape" });
+    }
+  }
+
+  return { nodes: [...mainNodes, ...agentNodes, ...qaNodes, ...scraperNodes], edges, width, height: CANVAS_HEIGHT };
 }
 
 function connectorPath(from: { x: number; y: number }, to: { x: number; y: number }) {
@@ -257,6 +346,7 @@ function NodeIcon({ node }: { node: GraphNode }) {
   if (node.kind === "trigger") return <Play className="size-4" />;
   if (node.kind === "agent") return <Bot className="size-4" />;
   if (node.kind === "qa") return <ShieldCheck className="size-4" />;
+  if (node.kind === "scraper") return <Globe className="size-4" />;
   if (node.kind === "output") return <MessageSquareText className="size-4" />;
   return <Sparkles className="size-4" />;
 }
@@ -337,8 +427,18 @@ function EmptyCanvas({ isPlanning }: { isPlanning?: boolean }) {
 
 type Viewport = { x: number; y: number; scale: number };
 
-export function WorkflowPanel({ subtasks, isPlanning }: { subtasks: SubtaskRecord[]; isPlanning?: boolean }) {
-  const graph = useMemo(() => buildGraph(subtasks), [subtasks]);
+export function WorkflowPanel({
+  subtasks,
+  isPlanning,
+  memoryRecall,
+  events = [],
+}: {
+  subtasks: SubtaskRecord[];
+  isPlanning?: boolean;
+  memoryRecall?: WorkflowMemoryRecall | null;
+  events?: MomentumEvent[];
+}) {
+  const graph = useMemo(() => buildGraph(subtasks, events), [subtasks, events]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [offsets, setOffsets] = useState<Record<string, { x: number; y: number }>>({});
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, scale: 0.85 });
@@ -594,6 +694,33 @@ export function WorkflowPanel({ subtasks, isPlanning }: { subtasks: SubtaskRecor
         )}
       </div>
 
+      {memoryRecall && (
+        <div className="animate-in fade-in slide-in-from-top-1 absolute left-1/2 top-14 z-20 w-[min(19rem,calc(100vw-1.5rem))] -translate-x-1/2 rounded-md border border-accent-strong/40 bg-panel p-2.5 text-panel-foreground shadow-xl backdrop-blur-xl duration-300">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-strong">
+            <History className="size-3.5" />
+            Similar workflow found
+          </div>
+          <div className="mt-1.5 grid grid-cols-3 gap-2 font-mono text-[11px]">
+            <div>
+              <div className="text-panel-muted">Similarity</div>
+              <div>{Math.round(memoryRecall.similarity * 100)}%</div>
+            </div>
+            <div>
+              <div className="text-panel-muted">Hist. quality</div>
+              <div>{Math.round(memoryRecall.historicalQuality)}</div>
+            </div>
+            <div>
+              <div className="text-panel-muted">Hist. cost</div>
+              <div>{memoryRecall.historicalCost}t</div>
+            </div>
+          </div>
+          <div className="mt-1 font-mono text-[10px] text-panel-muted">
+            Latency {(memoryRecall.historicalLatencyMs / 1000).toFixed(0)}s · previously used{" "}
+            {memoryRecall.agentsUsed.join(", ")}
+          </div>
+        </div>
+      )}
+
       {/*
         Bottom-right control stack: zoom controls + selected node detail live in one
         flex-col-reverse container anchored to a single safe corner. Stacking order
@@ -615,7 +742,40 @@ export function WorkflowPanel({ subtasks, isPlanning }: { subtasks: SubtaskRecor
           </Button>
         </div>
 
-        {subtasks.length > 0 && selectedNode && selectedNode.subtask && (
+        {subtasks.length > 0 && selectedNode && selectedNode.kind === "scraper" && (
+          <div className="pointer-events-auto animate-in fade-in slide-in-from-bottom-1 w-72 max-w-full overflow-hidden rounded-md border border-panel-border bg-panel p-3 text-panel-foreground shadow-xl backdrop-blur-xl duration-300">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="shrink-0 text-[10px] uppercase tracking-wide text-panel-muted">{selectedNode.eyebrow}</span>
+              <span className="truncate text-sm font-semibold">{selectedNode.title}</span>
+              <Badge variant="outline" className={cn("ml-auto shrink-0 text-[10px] ring-1", statusTone(selectedNode.status).chip)}>
+                {selectedNode.status}
+              </Badge>
+            </div>
+            {selectedNode.webData ? (
+              selectedNode.webData.available ? (
+                <div className="space-y-1.5 text-xs">
+                  <div className="text-panel-muted">Grounded {selectedNode.subtask?.requiredCapability ?? "output"} in {selectedNode.webData.sources.length} live source{selectedNode.webData.sources.length === 1 ? "" : "s"}:</div>
+                  <ul className="space-y-1">
+                    {selectedNode.webData.sources.map((s, i) => (
+                      <li key={i} className="truncate">
+                        <span className="text-panel-muted">{i + 1}. </span>
+                        <span title={s.url}>{s.title || s.url}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="text-xs text-panel-muted">
+                  No live data fetched — {selectedNode.webData.reason ?? "unknown reason"}. Worker fell back to its own training data.
+                </div>
+              )
+            ) : (
+              <div className="text-xs text-panel-muted">{selectedNode.detail}</div>
+            )}
+          </div>
+        )}
+
+        {subtasks.length > 0 && selectedNode && selectedNode.kind !== "scraper" && selectedNode.subtask && (
           <div className="pointer-events-auto animate-in fade-in slide-in-from-bottom-1 w-72 max-w-full overflow-hidden rounded-md border border-panel-border bg-panel p-3 text-panel-foreground shadow-xl backdrop-blur-xl duration-300">
             <div className="mb-2 flex items-center gap-2">
               <span className="shrink-0 text-[10px] uppercase tracking-wide text-panel-muted">{selectedNode.eyebrow}</span>

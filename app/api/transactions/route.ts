@@ -36,11 +36,18 @@ export async function GET(request: Request) {
     take: 50,
   }) : [];
 
+  const securityEvents = taskId ? await prisma.securityEvent.findMany({
+    where: { taskId },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  }) : [];
+
   return NextResponse.json({
     transactions,
     paymentIntents,
     blockchainTransactions,
     blockchainWorkflowEvents,
     algorandTransactions,
+    securityEvents,
   });
 }
