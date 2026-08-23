@@ -198,7 +198,7 @@ export function FloatingChatBar({
 
   useEffect(() => () => teardownRecording(), [teardownRecording]);
 
-  async function submit(skipAuthCheck = false) {
+  async function submit(optMode: "A" | "B" = "B", skipAuthCheck = false) {
     if (!prompt.trim()) return;
     if (!skipAuthCheck && requiresAuth) {
       setLoginOpen(true);
@@ -210,7 +210,7 @@ export function FloatingChatBar({
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, budget, qualityThreshold }),
+        body: JSON.stringify({ prompt, budget, qualityThreshold, optimizationMode: optMode }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -228,13 +228,13 @@ export function FloatingChatBar({
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && !submitting) submit();
+      if (!disabled && !submitting) submit("B");
     }
   }
 
   return (
     <>
-    <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSuccess={() => submit(true)} />
+    <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} onSuccess={() => submit("B", true)} />
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex flex-col items-center gap-2 px-4 pb-5">
       <div className="pointer-events-auto w-full max-w-2xl">
         {error && (
@@ -386,15 +386,24 @@ export function FloatingChatBar({
                     <Mic className="size-4" />
                   </Button>
                 ) : (
-                  <Button
-                    size="icon"
-                    onClick={() => submit()}
-                    disabled={disabled || submitting || !prompt.trim()}
-                    className="size-8 shrink-0 rounded-full bg-accent-strong text-accent-strong-foreground transition-transform hover:opacity-90 active:scale-90"
-                    aria-label="Run task"
-                  >
-                    {submitting ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
-                  </Button>
+                  <div className="flex gap-1.5">
+                    <Button
+                      type="button"
+                      onClick={() => submit("A")}
+                      disabled={disabled || submitting || !prompt.trim()}
+                      className="px-3 h-8 shrink-0 rounded-full bg-panel-elevated text-panel-foreground text-xs font-semibold hover:bg-panel-border transition-all active:scale-95 disabled:opacity-40"
+                    >
+                      {submitting ? <Loader2 className="size-3.5 animate-spin" /> : "Run Raw"}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => submit("B")}
+                      disabled={disabled || submitting || !prompt.trim()}
+                      className="px-3 h-8 shrink-0 rounded-full bg-accent-strong text-accent-strong-foreground text-xs font-semibold hover:opacity-90 transition-all active:scale-95 disabled:opacity-40"
+                    >
+                      {submitting ? <Loader2 className="size-3.5 animate-spin" /> : "Run Optimized"}
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>

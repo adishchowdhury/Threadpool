@@ -10,6 +10,7 @@ import { FinalOutputPanel } from "@/components/dashboard/FinalOutputPanel";
 import { RogueDemoButton } from "@/components/dashboard/RogueDemoButton";
 import { ChatHistoryPanel } from "@/components/dashboard/ChatHistoryPanel";
 import { MarketplacePanel } from "@/components/dashboard/MarketplacePanel";
+import { PromptOptimizationPanel } from "@/components/dashboard/PromptOptimizationPanel";
 import { UserMenu } from "@/components/dashboard/UserMenu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -313,6 +314,7 @@ export function Dashboard() {
       <FloatingChatBar onCreated={setTaskId} disabled={isRunning} isRunning={isRunning} elapsedSeconds={elapsedSeconds} onCancel={handleCancel} />
 
       <FinalOutputPanel task={task} open={reportOpen} onOpenChange={setReportOpen} />
+      <PromptOptimizationPanel task={task} />
       <ChatHistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} activeTaskId={taskId} onSelect={handleSelectFromHistory} />
       <MarketplacePanel agents={agents} open={marketplaceOpen} onOpenChange={setMarketplaceOpen} />
     </div>

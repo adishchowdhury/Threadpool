@@ -10,6 +10,11 @@ export interface TaskRecord {
   updatedAt: string;
   subtasks?: SubtaskRecord[];
   centralEscrow?: { totalLocked: number; totalReleased: number; totalRefunded: number } | null;
+  isOptimized?: boolean;
+  optimizationMode?: string;
+  optimizedTaskSpec?: string | null;
+  optimizerModel?: string | null;
+  optimizerLatencyMs?: number;
 }
 
 export interface SubtaskRecord {

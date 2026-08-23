@@ -171,6 +171,13 @@ model Task {
   securityEvents SecurityEvent[]
   algorandTransactions AlgorandLedgerTransaction[]
 
+  isOptimized            Boolean   @default(false)
+  optimizationMode       String    @default("A") // "A" (Raw) vs "B" (Optimized)
+  optimizedTaskSpec      String?   // JSON-encoded OptimizedTask
+  optimizerModel         String?
+  optimizerLatencyMs     Int       @default(0)
+  optimizerTokenCount    Int       @default(0)
+
   @@index([userId])
 }
 

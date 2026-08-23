@@ -14,6 +14,9 @@ export const firebaseConfigured = Boolean(
   firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId,
 );
 
-export const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(firebaseApp);
-export const googleProvider = new GoogleAuthProvider();
+export const firebaseApp = firebaseConfigured
+  ? (getApps().length ? getApp() : initializeApp(firebaseConfig))
+  : null;
+
+export const auth = firebaseApp ? getAuth(firebaseApp) : null;
+export const googleProvider = firebaseApp ? new GoogleAuthProvider() : null;

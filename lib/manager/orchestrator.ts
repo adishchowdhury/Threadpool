@@ -11,6 +11,7 @@ import { executeSubtask } from "@/lib/manager/worker";
 import { verifySubtaskOutput } from "@/lib/manager/qa";
 import { recordPerformanceAndUpdateReputation } from "@/lib/economy/reputation";
 import { findSimilarWorkflow, storeWorkflow } from "@/lib/manager/workflowMemory";
+import { PromptOptimizationRouter } from "@/lib/optimizer";
 
 async function isCancelled(taskId: string) {
   const task = await prisma.task.findUniqueOrThrow({ where: { id: taskId } });
@@ -42,9 +43,48 @@ export async function runTask(taskId: string) {
   if (await isCancelled(taskId)) return;
 
   await prisma.task.update({ where: { id: taskId }, data: { status: "PLANNING" } });
-  await emitEvent(prisma, { taskId, actor: "manager", eventType: "MANAGER_PLANNING", payload: { prompt: task.prompt } });
 
-  const { plan, source: planSource } = await decomposeTask({ prompt: task.prompt, budget: task.budget });
+  let activePrompt = task.prompt;
+
+  if (task.optimizationMode === "B") {
+    await emitEvent(prisma, { taskId, actor: "manager", eventType: "MOMENTUM_OPTIMIZER_STARTED", payload: { prompt: task.prompt } });
+    const start = Date.now();
+    const router = new PromptOptimizationRouter();
+    try {
+      const optimized = await router.optimize({ prompt: task.prompt });
+      const latency = Date.now() - start;
+
+      await prisma.task.update({
+        where: { id: taskId },
+        data: {
+          isOptimized: true,
+          optimizedTaskSpec: JSON.stringify(optimized),
+          optimizerModel: process.env.PROMPT_MODEL_ENABLED === "false" ? "gemini-fallback" : "Qwen3-0.6B",
+          optimizerLatencyMs: latency,
+        },
+      });
+
+      activePrompt = `Objective: ${optimized.objective}\nTask Type: ${optimized.taskType}\nCapabilities: ${optimized.requiredCapabilities.join(", ")}\nScope: ${JSON.stringify(optimized.scope)}\nConstraints: ${JSON.stringify(optimized.constraints)}\nVerification Requirements: ${JSON.stringify(optimized.verificationRequirements)}`;
+
+      await emitEvent(prisma, {
+        taskId,
+        actor: "manager",
+        eventType: "MOMENTUM_OPTIMIZER_COMPLETED",
+        payload: {
+          optimizedTask: optimized,
+          latencyMs: latency,
+          model: process.env.PROMPT_MODEL_ENABLED === "false" ? "gemini-fallback" : "Qwen3-0.6B",
+        },
+      });
+    } catch (err: any) {
+      console.error("[Orchestrator] Prompt optimization failed, using raw prompt:", err);
+      await emitEvent(prisma, { taskId, actor: "manager", eventType: "MOMENTUM_OPTIMIZER_FAILED", payload: { error: err.message } });
+    }
+  }
+
+  await emitEvent(prisma, { taskId, actor: "manager", eventType: "MANAGER_PLANNING", payload: { prompt: activePrompt } });
+
+  const { plan, source: planSource } = await decomposeTask({ prompt: activePrompt, budget: task.budget });
   if (await isCancelled(taskId)) return;
 
   const taskType = plan.subtasks[0]?.requiredCapability ?? "general";
