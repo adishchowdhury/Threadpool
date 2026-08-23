@@ -10,6 +10,7 @@ const createTaskSchema = z.object({
   budget: z.number().int().positive().max(1000),
   qualityThreshold: z.number().int().min(0).max(100).optional(),
   deadline: z.string().datetime().optional(),
+  optimizationMode: z.enum(["A", "B"]).optional(),
 });
 
 export async function GET() {
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { prompt, budget, qualityThreshold, deadline } = parsed.data;
+  const { prompt, budget, qualityThreshold, deadline, optimizationMode } = parsed.data;
 
   // Guards against a freshly-migrated DB that hasn't run the seed script yet.
   await ensureDemoUser();
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
       deadline: deadline ? new Date(deadline) : null,
       status: "CREATED",
       userId: DEMO_USER_ID,
+      optimizationMode: optimizationMode ?? "A",
     },
   });
 

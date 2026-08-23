@@ -13,7 +13,7 @@ export function useAuthUser(): AuthState {
   const [state, setState] = useState<AuthState>({ user: null, loading: firebaseConfigured });
 
   useEffect(() => {
-    if (!firebaseConfigured) return;
+    if (!firebaseConfigured || !auth) return;
     return onAuthStateChanged(auth, (user) => setState({ user, loading: false }));
   }, []);
 
