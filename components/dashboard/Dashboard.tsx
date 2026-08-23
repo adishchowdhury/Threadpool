@@ -14,6 +14,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { firebaseConfigured } from "@/lib/firebase";
+import { PromptOptimizationPanel } from "@/components/dashboard/PromptOptimizationPanel";
 import type { AgentRecord, TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord } from "@/lib/types";
 import { FileText, History, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -275,6 +276,7 @@ export function Dashboard() {
       <FloatingChatBar onCreated={setTaskId} disabled={isRunning} isRunning={isRunning} elapsedSeconds={elapsedSeconds} onCancel={handleCancel} />
 
       <FinalOutputPanel task={task} open={reportOpen} onOpenChange={setReportOpen} />
+      <PromptOptimizationPanel task={task} />
       <ChatHistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} activeTaskId={taskId} onSelect={handleSelectFromHistory} />
     </div>
   );

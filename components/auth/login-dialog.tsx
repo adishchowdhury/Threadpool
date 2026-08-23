@@ -21,12 +21,12 @@ export function LoginDialog({
   const [error, setError] = useState<string | null>(null);
 
   async function handleSignIn() {
-    if (!firebaseConfigured) {
+    if (!firebaseConfigured || !auth || !googleProvider) {
       setError("Firebase isn't configured yet — add NEXT_PUBLIC_FIREBASE_* env vars.");
       return;
     }
-    setError(null);
     setSigningIn(true);
+    setError(null);
     try {
       await signInWithPopup(auth, googleProvider);
       onSuccess();

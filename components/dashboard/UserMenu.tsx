@@ -56,7 +56,9 @@ export function UserMenu() {
 
   async function handleLogout() {
     try {
-      await signOut(auth);
+      if (auth) {
+        await signOut(auth);
+      }
       router.replace("/");
     } catch {
       toast.error("Couldn't log out — please try again.");

@@ -1,0 +1,331 @@
+{
+  "timestamp": "2026-08-23T03:53:45.508Z",
+  "model": "Qwen2.5-0.5B-Instruct",
+  "statistics": {
+    "totalPrompts": 8,
+    "successRatePercent": 100,
+    "averageLatencyMs": 10559
+  },
+  "results": [
+    {
+      "prompt": "write a birthday message",
+      "latencyMs": 20816,
+      "success": true,
+      "error": "",
+      "output": {
+        "objective": "Write a detailed executive summary for a global fintech market research report",
+        "taskType": "research",
+        "requiredCapabilities": [
+          "market_research"
+        ],
+        "scope": {
+          "geography": "global",
+          "timeframe": "2026",
+          "domain": "fintech"
+        },
+        "constraints": {
+          "budget": 100,
+          "deadline": "2026-08-30",
+          "format": "PDF"
+        },
+        "outputRequirements": {
+          "format": "report",
+          "sections": [
+            "Executive Summary"
+          ]
+        },
+        "verificationRequirements": {
+          "required": true,
+          "sourceGrounding": true
+        },
+        "ambiguities": [
+          "missing timeframe",
+          "missing target geography"
+        ],
+        "assumptions": [
+          "Assuming global scope"
+        ]
+      }
+    },
+    {
+      "prompt": "make a report on fintech",
+      "latencyMs": 10344,
+      "success": true,
+      "error": "",
+      "output": {
+        "objective": "Detailed objective of the task",
+        "taskType": "research",
+        "requiredCapabilities": [
+          "market_research"
+        ],
+        "scope": {
+          "geography": "global",
+          "timeframe": "2026",
+          "domain": "fintech"
+        },
+        "constraints": {
+          "budget": 100,
+          "deadline": "2026-08-30",
+          "format": "PDF"
+        },
+        "outputRequirements": {
+          "format": "report",
+          "sections": [
+            "Executive Summary"
+          ]
+        },
+        "verificationRequirements": {
+          "required": true,
+          "sourceGrounding": true
+        },
+        "ambiguities": [
+          "missing timeframe",
+          "missing target geography"
+        ],
+        "assumptions": [
+          "Assuming global scope"
+        ]
+      }
+    },
+    {
+      "prompt": "compare Indian fintech companies",
+      "latencyMs": 8671,
+      "success": true,
+      "error": "",
+      "output": {
+        "objective": "Compare Indian fintech companies",
+        "taskType": "research",
+        "requiredCapabilities": [
+          "market_research"
+        ],
+        "scope": {
+          "geography": "global",
+          "timeframe": "2026",
+          "domain": "fintech"
+        },
+        "constraints": {
+          "budget": 100,
+          "deadline": "2026-08-30",
+          "format": "PDF"
+        },
+        "outputRequirements": {
+          "format": "report",
+          "sections": [
+            "Executive Summary"
+          ]
+        },
+        "verificationRequirements": {
+          "required": true,
+          "sourceGrounding": true
+        },
+        "ambiguities": [
+          "missing timeframe",
+          "missing target geography"
+        ],
+        "assumptions": [
+          "Assuming global scope"
+        ]
+      }
+    },
+    {
+      "prompt": "find why our API is failing",
+      "latencyMs": 9018,
+      "success": true,
+      "error": "",
+      "output": {
+        "objective": "Find the reasons behind the API failure",
+        "taskType": "research",
+        "requiredCapabilities": [
+          "market_research"
+        ],
+        "scope": {
+          "geography": "global",
+          "timeframe": "2026",
+          "domain": "fintech"
+        },
+        "constraints": {
+          "budget": 100,
+          "deadline": "2026-08-30",
+          "format": "PDF"
+        },
+        "outputRequirements": {
+          "format": "report",
+          "sections": [
+            "Executive Summary"
+          ]
+        },
+        "verificationRequirements": {
+          "required": true,
+          "sourceGrounding": true
+        },
+        "ambiguities": [
+          "missing timeframe",
+          "missing target geography"
+        ],
+        "assumptions": [
+          "Assuming global scope"
+        ]
+      }
+    },
+    {
+      "prompt": "analyze whether our company should enter the EV market",
+      "latencyMs": 9004,
+      "success": true,
+      "error": "",
+      "output": {
+        "objective": "analyze whether our company should enter the EV market",
+        "taskType": "research",
+        "requiredCapabilities": [
+          "market_research"
+        ],
+        "scope": {
+          "geography": "global",
+          "timeframe": "2026",
+          "domain": "fintech"
+        },
+        "constraints": {
+          "budget": 100,
+          "deadline": "2026-08-30",
+          "format": "PDF"
+        },
+        "outputRequirements": {
+          "format": "report",
+          "sections": [
+            "Executive Summary"
+          ]
+        },
+        "verificationRequirements": {
+          "required": true,
+          "sourceGrounding": true
+        },
+        "ambiguities": [
+          "missing timeframe",
+          "missing target geography"
+        ],
+        "assumptions": [
+          "Assuming global scope"
+        ]
+      }
+    },
+    {
+      "prompt": "get the latest revenue of company X",
+      "latencyMs": 8952,
+      "success": true,
+      "error": "",
+      "output": {
+        "objective": "Detailed objective of the task",
+        "taskType": "research",
+        "requiredCapabilities": [
+          "market_research"
+        ],
+        "scope": {
+          "geography": "global",
+          "timeframe": "2026",
+          "domain": "fintech"
+        },
+        "constraints": {
+          "budget": 100,
+          "deadline": "2026-08-30",
+          "format": "PDF"
+        },
+        "outputRequirements": {
+          "format": "report",
+          "sections": [
+            "Executive Summary"
+          ]
+        },
+        "verificationRequirements": {
+          "required": true,
+          "sourceGrounding": true
+        },
+        "ambiguities": [
+          "missing timeframe",
+          "missing target geography"
+        ],
+        "assumptions": [
+          "Assuming global scope"
+        ]
+      }
+    },
+    {
+      "prompt": "create a backend architecture for this application",
+      "latencyMs": 8820,
+      "success": true,
+      "error": "",
+      "output": {
+        "objective": "Determine the best backend architecture for a fintech application",
+        "taskType": "research",
+        "requiredCapabilities": [
+          "market_research"
+        ],
+        "scope": {
+          "geography": "global",
+          "timeframe": "2026",
+          "domain": "fintech"
+        },
+        "constraints": {
+          "budget": 100,
+          "deadline": "2026-08-30",
+          "format": "PDF"
+        },
+        "outputRequirements": {
+          "format": "report",
+          "sections": [
+            "Executive Summary"
+          ]
+        },
+        "verificationRequirements": {
+          "required": true,
+          "sourceGrounding": true
+        },
+        "ambiguities": [
+          "missing timeframe",
+          "missing target geography"
+        ],
+        "assumptions": [
+          "Assuming global scope"
+        ]
+      }
+    },
+    {
+      "prompt": "analyze this customer data and find anomalies",
+      "latencyMs": 8847,
+      "success": true,
+      "error": "",
+      "output": {
+        "objective": "Analyze customer data and identify anomalies",
+        "taskType": "research",
+        "requiredCapabilities": [
+          "market_research"
+        ],
+        "scope": {
+          "geography": "global",
+          "timeframe": "2026",
+          "domain": "fintech"
+        },
+        "constraints": {
+          "budget": 100,
+          "deadline": "2026-08-30",
+          "format": "PDF"
+        },
+        "outputRequirements": {
+          "format": "report",
+          "sections": [
+            "Executive Summary"
+          ]
+        },
+        "verificationRequirements": {
+          "required": true,
+          "sourceGrounding": true
+        },
+        "ambiguities": [
+          "missing timeframe",
+          "missing target geography"
+        ],
+        "assumptions": [
+          "Assuming global scope"
+        ]
+      }
+    }
+  ]
+}

@@ -49,3 +49,11 @@ prisma/dev.db
 scripts/.screenshots
 
 /app/generated/prisma
+
+# models
+models/*.gguf
+models/*.bin
+models/*.safetensors
+!models/model-manifest.json
+!models/README.md
+
