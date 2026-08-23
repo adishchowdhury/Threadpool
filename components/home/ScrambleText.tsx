@@ -16,7 +16,6 @@ export function ScrambleText({
   const frame = useRef(0);
 
   useEffect(() => {
-    console.log("SCRAMBLE_DEBUG", performance.now().toFixed(0), "active=", active, text);
     if (!active) {
       setDisplay(text);
       frame.current = 0;
