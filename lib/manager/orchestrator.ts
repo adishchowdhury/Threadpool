@@ -13,6 +13,8 @@ import { rankCandidates } from "@/lib/manager/rank";
 import { lockAgentEscrow, releaseAgentEscrow, refundAgentEscrow } from "@/lib/economy/escrow";
 import { executeSubtask } from "@/lib/manager/worker";
 import { verifySubtaskOutput } from "@/lib/manager/qa";
+import { isSarvamConfigured } from "@/lib/manager/sarvam";
+import type { QaVerdict } from "@/lib/manager/schemas";
 import { checkReportNumbers } from "@/lib/manager/numericCheck";
 import { buildFinalReport } from "@/lib/manager/finalReport";
 import { recordPerformanceAndUpdateReputation } from "@/lib/economy/reputation";
@@ -29,7 +31,7 @@ async function isCancelled(taskId: string) {
 
 async function failTask(taskId: string, reason: string) {
   const task = await db.task.findUnique({ where: { id: taskId } });
-  if (!task || task.status === "CANCELLED" || task.status === "CANCELLING" || task.status === "COMPLETED") return;
+  if (!task || task.status === "CANCELLED" || task.status === "CANCELLING" || task.status === "COMPLETED" || task.status === "PARTIAL") return;
 
   // A failed task must not leave money locked: return every outstanding
   // escrow to the task budget (each refund goes through the escrow service,
@@ -131,6 +133,12 @@ export async function runTask(taskId: string) {
   let totalCost = 0;
   let reviewOutcome: Awaited<ReturnType<typeof runReworkCycle>> | null = null;
   const workStart = Date.now();
+  // Subtasks that could not be completed (no agent, or QA rejected every
+  // attempt and every reassignment). These don't abort the task by
+  // themselves - buildFinalReport already skips subtasks with no output, so
+  // the workflow finishes in a degraded ("PARTIAL") state with the gap
+  // disclosed, rather than discarding every subtask that DID succeed.
+  const degraded: Array<{ type: string; requiredCapability: string; reason: string }> = [];
 
   for (const subtask of createdSubtasks) {
     if (await isCancelled(taskId)) return;
@@ -159,9 +167,11 @@ export async function runTask(taskId: string) {
     });
 
     if (filtered.length === 0) {
+      const reason = `No eligible agent available for subtask '${subtask.type}' within remaining budget.`;
       await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
-      await failTask(taskId, `No eligible agent available for subtask '${subtask.type}' within remaining budget.`);
-      return;
+      await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
+      degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
+      continue;
     }
 
     const bids = await collectBids({ taskId, subtaskId: subtask.id, candidates: filtered });
@@ -283,6 +293,7 @@ export async function runTask(taskId: string) {
     let done = false;
     let localAttempt = 0; // attempts against the CURRENTLY assigned agent
     const maxAttempts = subtask.maxAttempts;
+    let qaExhausted = false; // soft-skipped: ran out of agents, didn't actually pass
 
     while (!done) {
       if (await isCancelled(taskId)) return;
@@ -388,14 +399,40 @@ export async function runTask(taskId: string) {
 
       await emitEvent(db, { taskId, actor: "qa", eventType: "QA_STARTED", payload: { subtaskId: subtask.id, attempt: attemptNumber } });
 
-      const qa = await verifySubtaskOutput({
-        type: subtask.requiredCapability,
-        description: subtask.description ?? subtask.type,
-        output: exec.output,
-        qualityThreshold: task.qualityThreshold,
-        artifacts: exec.artifacts,
-        knownSources: [...knownSources, ...(exec.artifacts?.sources ?? [])],
-      });
+      // When Sarvam IS configured but this specific call still degraded to a
+      // placeholder/error (transient provider error, not a global outage),
+      // that's an execution failure, not a quality one - submitting it to the
+      // real QA model just burns a call judging text that was never the
+      // agent's actual work (lib/agents/calibration.ts applies the same
+      // "never score a fallback" rule offline). Skip straight to a
+      // deterministic failing verdict so retry/reassignment kicks in with an
+      // honest reason instead of a misleading "failed QA" message. When
+      // Sarvam is NOT configured at all, local-fallback output IS the
+      // intended demo-mode path, so it still goes through QA's own
+      // structural fallback check as normal.
+      const qa =
+        (exec.source === "local_fallback" && isSarvamConfigured()) || exec.source === "error"
+          ? {
+              verdict: {
+                passed: false,
+                score: 0,
+                reason:
+                  exec.source === "error"
+                    ? "Execution crashed before producing output, so there was nothing to review."
+                    : "The AI provider errored on this attempt and only a placeholder was produced, so there was nothing substantive to review.",
+                issues: [exec.source === "error" ? "execution error" : "provider error during execution"],
+              } satisfies QaVerdict,
+              source: "rubric" as const,
+              notes: [] as string[],
+            }
+          : await verifySubtaskOutput({
+              type: subtask.requiredCapability,
+              description: subtask.description ?? subtask.type,
+              output: exec.output,
+              qualityThreshold: task.qualityThreshold,
+              artifacts: exec.artifacts,
+              knownSources: [...knownSources, ...(exec.artifacts?.sources ?? [])],
+            });
 
       await recordPerformanceAndUpdateReputation({
         agentId: active.agent.id,
@@ -530,30 +567,46 @@ export async function runTask(taskId: string) {
             continue;
           }
 
-          // Escrow already refunded above; no replacement left.
+          // Escrow already refunded above; no replacement left. Don't abort
+          // the whole task over one unstaffable step - skip it (no output,
+          // no payment) and let the rest of the workflow run; the gap is
+          // disclosed in the final report (§ task-level PARTIAL handling below).
+          const reason = `failed QA and no eligible replacement agent was available: ${qa.verdict.reason}`;
           await db.subtask.update({
             where: { id: subtask.id },
-            data: { status: "FAILED", qaScore: qa.verdict.score, qaReason: qa.verdict.reason },
+            data: { status: "FAILED", output: null, qaScore: qa.verdict.score, qaReason: qa.verdict.reason },
           });
-          await failTask(taskId, `Subtask '${subtask.type}' failed QA and no eligible replacement agent was available: ${qa.verdict.reason}`);
-          return;
+          await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
+          degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
+          qaExhausted = true;
+          done = true;
+          continue;
         }
 
-        // Path C: terminate - reassignment limit hit, refund, fail.
-        await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "qa_failed_max_attempts" });
-        await db.subtask.update({
-          where: { id: subtask.id },
-          data: { status: "FAILED", qaScore: qa.verdict.score, qaReason: qa.verdict.reason },
-        });
-        await failTask(taskId, `Subtask '${subtask.type}' failed QA after ${maxAttempts} attempts: ${qa.verdict.reason}`);
-        return;
+        // Path C: reassignment limit hit - same soft-skip as above, not a
+        // whole-task failure.
+        {
+          const reason = `failed QA after ${maxAttempts} attempts (reassignment limit reached): ${qa.verdict.reason}`;
+          await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "qa_failed_max_attempts" });
+          await db.subtask.update({
+            where: { id: subtask.id },
+            data: { status: "FAILED", output: null, qaScore: qa.verdict.score, qaReason: qa.verdict.reason },
+          });
+          await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
+          degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
+          qaExhausted = true;
+          done = true;
+          continue;
+        }
       }
     }
 
     // The final review has run: if it found blocking problems, send the work
     // back to the responsible steps, re-run what depends on them, and review
     // again (bounded). Not a task failure - unresolved issues are disclosed.
-    if (subtask.requiredCapability === "quality_verification") {
+    // Skipped if this very subtask was itself soft-skipped above (no QA
+    // verdict to act on).
+    if (subtask.requiredCapability === "quality_verification" && !qaExhausted) {
       const outcome = await runReworkCycle({
         taskId,
         taskPrompt: task.prompt,
@@ -581,9 +634,26 @@ export async function runTask(taskId: string) {
   // report can never show a reference that Kraven did not fetch.
   const allSources = await taskSources(taskId);
   const reportBody = stripInvalidCitations(stripModelSourceList(report.content), allSources);
+
+  // Every subtask was skipped or failed and produced nothing: there's no
+  // deliverable to disclose a gap in, so this is a full failure after all.
+  if (!reportBody.trim()) {
+    await failTask(
+      taskId,
+      degraded.length > 0
+        ? `No subtask produced usable output. ${degraded.map((d) => `'${d.type}' ${d.reason}`).join(" ")}`
+        : "No subtask produced usable output.",
+    );
+    return;
+  }
+
   const used = sourcesForText(reportBody, allSources);
   const sourcesSection = renderSourcesSection(used.sources, used.citedOnly ? "## Sources" : "## Research sources consulted");
-  const reportContent = sourcesSection ? `${reportBody}\n\n${sourcesSection}` : reportBody;
+  const degradedNote =
+    degraded.length > 0
+      ? `> **Incomplete:** ${degraded.map((d) => `${d.type.replace(/_/g, " ")} (${d.reason})`).join("; ")}. The rest of the workforce completed its work; this report reflects what could be produced without it.\n\n`
+      : "";
+  const reportContent = `${degradedNote}${reportBody}${sourcesSection ? `\n\n${sourcesSection}` : ""}`;
 
   // Reuse the final review's numeric check when it looked at this exact report.
   const reviewArtifacts = finalSubtasks
@@ -616,6 +686,7 @@ export async function runTask(taskId: string) {
     avg_quality: Math.round(avgQuality),
     numeric_checks: numericChecks,
     subtask_types: finalSubtasks.map((st) => st.type),
+    incomplete_subtasks: degraded.length > 0 ? degraded : undefined,
     sources: allSources.map((src) => ({ id: src.id, title: src.title, url: src.url, kind: src.kind, cited: used.citedOnly && used.sources.includes(src) })),
     review: reviewOutcome
       ? {
@@ -640,11 +711,12 @@ export async function runTask(taskId: string) {
     },
   };
 
+  const finalStatus = degraded.length > 0 ? "PARTIAL" : "COMPLETED";
   await db.task.update({
     where: { id: taskId },
-    data: { status: "COMPLETED", finalOutput: JSON.stringify(finalOutput) },
+    data: { status: finalStatus, finalOutput: JSON.stringify(finalOutput) },
   });
-  await emitEvent(db, { taskId, actor: "manager", eventType: "TASK_COMPLETED", payload: finalOutput });
+  await emitEvent(db, { taskId, actor: "manager", eventType: finalStatus === "PARTIAL" ? "TASK_PARTIAL" : "TASK_COMPLETED", payload: finalOutput });
 
   await storeWorkflow({
     taskId,
@@ -657,7 +729,7 @@ export async function runTask(taskId: string) {
     cost: totalCost,
     latencyMs: Date.now() - workStart,
     quality: avgQuality,
-    success: true,
+    success: degraded.length === 0,
   });
 }
 

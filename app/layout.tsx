@@ -1,5 +1,5 @@
 ﻿import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Caveat } from "next/font/google";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -15,15 +15,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const caveat = Caveat({
-  variable: "--font-cursive",
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-accent",
   subsets: ["latin"],
-  weight: ["600"],
+  weight: ["400"],
+  style: ["italic"],
 });
 
 export const metadata: Metadata = {
   title: "Kraven - AI Workforce Command Center",
-  description: "Autonomous AI workforce optimizer sandbox",
+  description: "Autonomous AI workforce optimizer",
   icons: {
     icon: "/icon.svg",
     shortcut: "/icon.svg",
@@ -43,7 +44,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} ${caveat.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col overflow-hidden">
         <ThemeProvider>

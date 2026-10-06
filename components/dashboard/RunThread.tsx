@@ -8,7 +8,8 @@ import { tokensWorthLabel } from "@/lib/economy/tokenValue";
 import { cn } from "@/lib/utils";
 import { WorkflowPanel } from "@/components/dashboard/WorkflowPanel";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { Check, ChevronDown, Circle, Fullscreen, Loader2, Network, X } from "lucide-react";
+import { Check, ChevronDown, Circle, Copy, Fullscreen, Loader2, Network, X } from "lucide-react";
+import { toast } from "sonner";
 
 const ACTIVE = new Set(["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA"]);
 
@@ -16,6 +17,12 @@ interface MemoryRecall {
   similarity: number;
   historicalCost: number;
   historicalQuality: number;
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
 function humanize(slug: string): string {
@@ -255,6 +262,7 @@ export function RunThread({
   // result exists; whatever the person toggles afterwards is respected.
   const [userStepsOpen, setUserStepsOpen] = useState<boolean | null>(null);
   const stepsOpen = userStepsOpen ?? running;
+  const [promptCopied, setPromptCopied] = useState(false);
 
   // Opening a task starts at its top. While work is in progress the newest
   // step is kept in view - unless the person has scrolled up to read.
@@ -284,8 +292,33 @@ export function RunThread({
       {/* The request */}
       <div className="flex flex-col items-end gap-1.5">
         <div className="max-w-[88%] rounded-3xl bg-muted px-5 py-3 text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">{task.prompt}</div>
-        <div className="px-2 text-xs text-muted-foreground">
-          Budget {task.budget} tokens ({tokensWorthLabel(task.budget)}) · Quality bar {task.qualityThreshold}
+        <div className="flex items-center gap-2 px-2 text-xs text-muted-foreground">
+          <span>
+            Budget {task.budget} tokens ({tokensWorthLabel(task.budget)}) · Quality bar {task.qualityThreshold}
+          </span>
+          <span aria-hidden>·</span>
+          <span>{formatTime(task.createdAt)}</span>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(task.prompt);
+                setPromptCopied(true);
+                toast.success("Prompt copied to clipboard");
+                setTimeout(() => setPromptCopied(false), 1800);
+              } catch {
+                toast.error("Couldn't copy - clipboard access was denied.");
+              }
+            }}
+            className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 transition-colors hover:text-foreground"
+          >
+            {promptCopied ? (
+              <Check className="size-3 animate-in zoom-in-50 text-emerald-500 duration-200" />
+            ) : (
+              <Copy className="size-3" />
+            )}
+            {promptCopied ? "Copied" : "Copy"}
+          </button>
         </div>
       </div>
 
@@ -307,7 +340,15 @@ export function RunThread({
             className="group rounded-2xl border border-border"
           >
             <summary className="flex cursor-pointer select-none list-none items-center gap-2.5 px-4 py-3 text-sm">
-              {running ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : task.status === "COMPLETED" ? <Check className="size-4 text-emerald-600 dark:text-emerald-400" strokeWidth={3} /> : <X className="size-4 text-muted-foreground" />}
+              {running ? (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              ) : task.status === "COMPLETED" ? (
+                <Check className="size-4 text-emerald-600 dark:text-emerald-400" strokeWidth={3} />
+              ) : task.status === "PARTIAL" ? (
+                <Check className="size-4 text-amber-600 dark:text-amber-400" strokeWidth={3} />
+              ) : (
+                <X className="size-4 text-muted-foreground" />
+              )}
               <span className="font-medium">{summary}</span>
               <ChevronDown className="ml-auto size-4 text-muted-foreground transition-transform group-open:rotate-180" />
             </summary>

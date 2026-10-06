@@ -1,6 +1,6 @@
 import { generateText } from "ai";
 import { z } from "zod";
-import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_LARGE_OUTPUT_TOKENS, type SarvamModelTier } from "@/lib/manager/sarvam";
+import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_LARGE_OUTPUT_TOKENS, SARVAM_CALL_TIMEOUT_MS, type SarvamModelTier } from "@/lib/manager/sarvam";
 import { BRIEF_REASONING_NOTE } from "@/lib/capabilities/llm";
 
 // Sarvam reasoning models may emit <think> blocks and fenced JSON, so ask for
@@ -39,6 +39,7 @@ export async function generateStructuredWithUsage<T extends z.ZodType>(params: {
       // Judgments (QA, planning) should be repeatable, not sampled.
       temperature: 0,
       maxOutputTokens: params.largeOutput ? SARVAM_LARGE_OUTPUT_TOKENS : SARVAM_MAX_OUTPUT_TOKENS,
+      abortSignal: AbortSignal.timeout(SARVAM_CALL_TIMEOUT_MS),
       ...(params.system ? { system: params.system } : {}),
       prompt: attempt === 0 ? basePrompt : basePrompt + BRIEF_REASONING_NOTE,
     });

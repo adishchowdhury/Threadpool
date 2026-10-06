@@ -26,6 +26,9 @@ import {
 import { ScaleDivider, VerticalScaleBars } from "./ScaleDivider";
 import { HeroSimulation } from "./HeroSimulation";
 import { ScrambleText, useHoverScramble } from "./ScrambleText";
+import { SiteNavLinks } from "@/components/marketing/SiteNavLinks";
+import { FooterLinks } from "@/components/marketing/FooterLinks";
+import { MobileNav } from "@/components/marketing/MobileNav";
 import { LoginDialog } from "@/components/auth/login-dialog";
 import { firebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/lib/use-auth-user";
@@ -34,7 +37,7 @@ import { CAPABILITY_IDS, CAPABILITY_CATALOG } from "@/lib/capabilities/catalog";
 
 const PIPELINE_STEPS = [
   { label: "Task", desc: "Objective + budget", icon: ClipboardList },
-  { label: "Manager", desc: "Gemini decomposes it", icon: Sparkles },
+  { label: "Manager", desc: "Sarvam AI decomposes it", icon: Sparkles },
   { label: "Discover", desc: "Search the marketplace", icon: Search },
   { label: "Rank", desc: "Score every candidate", icon: SlidersHorizontal },
   { label: "Escrow", desc: "Lock the budget", icon: Lock },
@@ -125,8 +128,8 @@ export function HomePage() {
       />
       {/* ─── NAV ─── */}
       <header className="sticky top-0 z-50 border-b border-neutral-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-          <Link href="/" className="flex items-center">
+        <div className="relative mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+          <Link href="/" className="flex shrink-0 items-center">
             <Image
               src="/logo.png"
               alt="Kraven"
@@ -137,7 +140,11 @@ export function HomePage() {
             />
           </Link>
 
-          <div className="flex items-center gap-3">
+          <nav className="hidden items-center gap-5 font-mono text-[10.5px] uppercase tracking-wider text-neutral-400 xl:flex">
+            <SiteNavLinks linkClassName="transition-colors hover:text-neutral-900" />
+          </nav>
+
+          <div className="flex shrink-0 items-center gap-3">
             <Link
               href="/dashboard"
               onClick={handleLaunch}
@@ -148,6 +155,7 @@ export function HomePage() {
               <ScrambleText text="Launch console" active={navLaunch.hovered} />
               <ArrowRight className="size-3.5" />
             </Link>
+            <MobileNav />
           </div>
         </div>
       </header>
@@ -163,7 +171,7 @@ export function HomePage() {
                   aria-hidden
                   className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] -rotate-1 bg-amber-300/80"
                 />
-                <span className="font-(family-name:--font-cursive) text-[1.2em] font-semibold tracking-normal">
+                <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">
                   budget
                 </span>
               </span>
@@ -174,7 +182,7 @@ export function HomePage() {
                   aria-hidden
                   className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] rotate-1 bg-amber-300/80"
                 />
-                <span className="font-(family-name:--font-cursive) text-[1.2em] font-semibold tracking-normal">
+                <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">
                   blank check
                 </span>
               </span>
@@ -465,32 +473,9 @@ export function HomePage() {
       {/* ─── FOOTER ─── */}
       <footer className="border-t border-neutral-200 py-10">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
-          <div className="flex items-center gap-2.5">
-            <Image
-              src="/logo.png"
-              alt="Kraven"
-              width={2172}
-              height={724}
-              className="h-4 w-auto opacity-60"
-            />
-            <span className="font-mono text-[12px] text-neutral-500">
-              - economic security sandbox for AI agents
-            </span>
-          </div>
+          <span className="font-mono text-[12px] text-neutral-400">© 2026 Kraven. All rights reserved.</span>
           <div className="flex items-center gap-6 font-mono text-[11px] uppercase tracking-wider text-neutral-400">
-            <a href="#pipeline" className="transition-colors hover:text-neutral-700">
-              Pipeline
-            </a>
-            <a href="#security" className="transition-colors hover:text-neutral-700">
-              Security
-            </a>
-            <Link
-              href="/dashboard"
-              onClick={handleLaunch}
-              className="transition-colors hover:text-neutral-700"
-            >
-              Console
-            </Link>
+            <FooterLinks linkClassName="transition-colors hover:text-neutral-700" />
           </div>
         </div>
       </footer>

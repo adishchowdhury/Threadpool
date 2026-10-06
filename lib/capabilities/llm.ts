@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, type SarvamModelTier } from "@/lib/manager/sarvam";
+import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_CALL_TIMEOUT_MS, type SarvamModelTier } from "@/lib/manager/sarvam";
 import type { CapabilityRunInput } from "@/lib/capabilities/types";
 
 export type Usage = { inputTokens: number; outputTokens: number };
@@ -26,6 +26,7 @@ export async function generateWithReasoningGuard(params: { tier: SarvamModelTier
     const res = await generateText({
       model: sarvamModel(params.tier),
       maxOutputTokens: SARVAM_MAX_OUTPUT_TOKENS,
+      abortSignal: AbortSignal.timeout(SARVAM_CALL_TIMEOUT_MS),
       ...(params.system ? { system: params.system } : {}),
       prompt: attempt === 0 ? params.prompt : params.prompt + BRIEF_REASONING_NOTE,
     });

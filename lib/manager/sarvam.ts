@@ -18,6 +18,18 @@ export const SARVAM_MODEL_TIERS = {
 
 export type SarvamModelTier = keyof typeof SARVAM_MODEL_TIERS;
 
+// generateText() has no default timeout: an LLM call that the gateway
+// never closes (a dropped connection it keeps "open", a stalled stream) used
+// to hang for the rest of the serverless invocation's lifetime, stalling the
+// whole task until the platform's own hard execution limit killed the
+// function mid-await - which looked in production like a task stuck "in
+// progress" for minutes before failing with no diagnosable reason. Every
+// Sarvam call is bounded by this so a stall surfaces as an ordinary caught
+// error within seconds, letting the existing retry/reassignment and
+// local-fallback paths (worker.ts, structuredGenerate.ts) handle it like any
+// other failed attempt.
+export const SARVAM_CALL_TIMEOUT_MS = 45_000;
+
 export function sarvamModel(tier: SarvamModelTier = "economy") {
   const apiKey = process.env.SARVAM_API_KEY;
   if (!apiKey) {

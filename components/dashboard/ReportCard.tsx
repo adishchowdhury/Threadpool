@@ -63,7 +63,7 @@ export function TaskResult({ task }: { task: TaskRecord }) {
     );
   }
 
-  if (task.status !== "COMPLETED" || !parsed) return null;
+  if ((task.status !== "COMPLETED" && task.status !== "PARTIAL") || !parsed) return null;
 
   const content = String(parsed.content ?? "");
   const spend = parsed.spend_summary as { budget: number; spent: number; remaining: number } | undefined;
@@ -71,6 +71,9 @@ export function TaskResult({ task }: { task: TaskRecord }) {
   const agents = [...new Set(outputs.map((o) => o.agentName).filter(Boolean))] as string[];
   const quality = typeof parsed.avg_quality === "number" ? parsed.avg_quality : null;
   const review = (parsed.review ?? null) as ReviewSummary | null;
+  const incomplete = Array.isArray(parsed.incomplete_subtasks)
+    ? (parsed.incomplete_subtasks as Array<{ type: string; requiredCapability: string; reason: string }>)
+    : [];
 
   async function handleCopy() {
     try {
@@ -97,6 +100,25 @@ export function TaskResult({ task }: { task: TaskRecord }) {
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 space-y-3 duration-500 ease-out">
+      {task.status === "PARTIAL" && incomplete.length > 0 && (
+        <div className="flex items-start gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="min-w-0">
+            <div className="font-medium text-amber-700 dark:text-amber-300">Completed with gaps</div>
+            <div className="mt-0.5 text-muted-foreground">
+              {incomplete.length} step{incomplete.length > 1 ? "s" : ""} couldn&apos;t be completed and no replacement agent was available. The rest of the
+              workforce finished and the report below reflects that.
+            </div>
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+              {incomplete.map((d, i) => (
+                <li key={i}>
+                  <span className="font-medium text-foreground">{d.type.replace(/_/g, " ")}</span> — {d.reason}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
       <article className="rounded-2xl border border-border bg-card px-5 py-5 shadow-sm sm:px-7 sm:py-6">
         <MarkdownView content={content} className="text-[0.95rem] leading-relaxed text-foreground" />
       </article>

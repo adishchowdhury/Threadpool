@@ -26,6 +26,10 @@ const TASK_STATUSES = [
   "IN_PROGRESS",
   "AWAITING_QA",
   "COMPLETED",
+  // A deliverable was produced but one or more subtasks exhausted retries and
+  // reassignment with no replacement agent available - the gap is disclosed
+  // in the report rather than discarding everything that DID succeed.
+  "PARTIAL",
   "FAILED",
   "CANCELLING",
   "CANCELLED",

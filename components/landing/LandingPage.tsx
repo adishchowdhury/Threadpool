@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { FigmaCursor } from "./FigmaCursor";
 import { FluidOrb } from "./FluidOrb";
 import { MagneticButton } from "./MagneticButton";
 
-const WORDS = ["Kraven", "Innofusion", "Intelligence", "Velocity"];
+const WORDS = ["Kraven", "Intelligence", "Velocity"];
 
 function useTextScramble(target: string) {
   const [output, setOutput] = useState(target);
@@ -436,13 +437,17 @@ export function LandingPage() {
           <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
             <polygon points="14,2 26,24 2,24" fill="white" opacity="0.5" />
           </svg>
-          <span className="text-white/30 text-xs font-mono">© 2026 Innofusion. All rights reserved.</span>
+          <span className="text-white/30 text-xs font-mono">© 2026 Kraven. All rights reserved.</span>
         </div>
         <div className="flex items-center gap-6 text-white/20 text-xs font-mono uppercase tracking-widest">
-          {["Privacy", "Terms", "Status", "Twitter"].map((item) => (
-            <a key={item} href="#" className="hover:text-white/50 transition-colors" data-cursor-hover>
-              {item}
-            </a>
+          {[
+            { label: "Privacy", href: "/privacy" },
+            { label: "Terms", href: "/terms" },
+            { label: "Contact", href: "/contact" },
+          ].map((item) => (
+            <Link key={item.label} href={item.href} className="hover:text-white/50 transition-colors" data-cursor-hover>
+              {item.label}
+            </Link>
           ))}
         </div>
       </footer>
