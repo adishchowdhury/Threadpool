@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/agents/health/sweep",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
