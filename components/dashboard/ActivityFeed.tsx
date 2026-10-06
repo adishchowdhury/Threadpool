@@ -88,6 +88,8 @@ function eventLine(e: KravenEvent): string {
       return `Task completed`;
     case "REPUTATION_UPDATED":
       return `Reputation updated for ${p.agentId}: ${p.reputation}`;
+    case "CONFIDENCE_COMPUTED":
+      return `Overall confidence: ${String(p.label).toUpperCase()} (${p.score}/100) — ${p.reason}`;
     case "WORKFLOW_MEMORY_STORED":
       return p.recalled ? `Recalled a similar past workflow (${(Number(p.similarity) * 100).toFixed(0)}% match)` : `Workflow stored for future reuse`;
     case "TASK_CREATED":

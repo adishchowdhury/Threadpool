@@ -66,6 +66,41 @@ test("fallback QA: reasonable substantive output can pass at the default demo th
   assert.equal(verdict.passed, true);
 });
 
+test("quality_verification fallback review: honest 'no issues found' passes instead of being judged as a non-review", async () => {
+  const { verdict } = await verifySubtaskOutput({
+    type: "quality_verification",
+    description: "review the final deliverable",
+    output: "## Integration review — APPROVED (80/100)\n\nThis review was produced entirely by Kraven's deterministic checks (no LLM judgment layer): no blocking issues were found.",
+    qualityThreshold: 70,
+    artifacts: {
+      mode: "fallback",
+      review: { approved: true, score: 80, summary: "deterministic checks only, no issues found", issues: [] },
+    },
+  });
+  assert.equal(verdict.passed, true);
+  assert.equal(verdict.score, 80);
+});
+
+test("quality_verification fallback review: deterministic checks that DID find blocking issues still fail", async () => {
+  const { verdict } = await verifySubtaskOutput({
+    type: "quality_verification",
+    description: "review the final deliverable",
+    output: "## Integration review — CHANGES REQUIRED (70/100)\n\nDeterministic checks found citation problems.",
+    qualityThreshold: 70,
+    artifacts: {
+      mode: "fallback",
+      review: {
+        approved: false,
+        score: 70,
+        summary: "deterministic checks only",
+        issues: [{ severity: "major", targetSequence: 1, category: "citations", description: "cites an unretrieved source", fix: "remove the citation", origin: "citation_check" }],
+      },
+    },
+  });
+  assert.equal(verdict.passed, false);
+  assert.match(verdict.reason, /blocking issues/);
+});
+
 test("fallback QA never claims a passing score reflects verified correctness", async () => {
   const output = "A perfectly coherent, well-formed, plausible-sounding paragraph that happens to answer the wrong question entirely but reads fine on its own, with enough length and sentence variety to clear every structural bar Kraven's deterministic fallback can check for.";
   const { verdict } = await verifySubtaskOutput({

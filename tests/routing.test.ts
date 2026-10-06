@@ -22,6 +22,9 @@ function agent(id: string, price: number, quality: number, caps = ["competitive_
     avgCost: price,
     totalJobs: 5,
     sampleCount: 5,
+    isExternal: false,
+    providerId: null,
+    providerName: null,
   };
 }
 

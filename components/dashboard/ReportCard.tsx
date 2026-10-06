@@ -7,7 +7,7 @@ import type { TaskRecord } from "@/lib/types";
 import type { NumericCheckReport } from "@/lib/manager/numericCheck";
 import type { WorkerOutput } from "@/lib/manager/finalReport";
 import { tokensWorthLabel } from "@/lib/economy/tokenValue";
-import { AlertCircle, AlertTriangle, Ban, Check, CheckCircle2, ChevronDown, Coins, Copy, Download, Gauge, Users } from "lucide-react";
+import { AlertCircle, AlertTriangle, Ban, Check, CheckCircle2, ChevronDown, Coins, Copy, Download, Gauge, ShieldCheck, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -71,6 +71,7 @@ export function TaskResult({ task }: { task: TaskRecord }) {
   const agents = [...new Set(outputs.map((o) => o.agentName).filter(Boolean))] as string[];
   const quality = typeof parsed.avg_quality === "number" ? parsed.avg_quality : null;
   const review = (parsed.review ?? null) as ReviewSummary | null;
+  const confidence = (parsed.confidence ?? null) as { score: number; label: "high" | "medium" | "low"; reason: string } | null;
   const incomplete = Array.isArray(parsed.incomplete_subtasks)
     ? (parsed.incomplete_subtasks as Array<{ type: string; requiredCapability: string; reason: string }>)
     : [];
@@ -123,11 +124,20 @@ export function TaskResult({ task }: { task: TaskRecord }) {
         <MarkdownView content={content} className="text-[0.95rem] leading-relaxed text-foreground" />
       </article>
 
-      {(quality != null || spend || review || agents.length > 0) && (
+      {(quality != null || spend || review || confidence || agents.length > 0) && (
         <div className="flex flex-wrap items-center gap-1.5 px-1">
           {quality != null && (
             <MetaChip icon={Gauge}>
               Quality {quality}/100
+            </MetaChip>
+          )}
+          {confidence && (
+            <MetaChip
+              icon={ShieldCheck}
+              tone={confidence.label === "high" ? "success" : confidence.label === "low" ? "warning" : "neutral"}
+              title={confidence.reason}
+            >
+              Confidence {confidence.label} ({confidence.score}/100)
             </MetaChip>
           )}
           {spend && (

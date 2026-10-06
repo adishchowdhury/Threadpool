@@ -136,6 +136,8 @@ const SIGNALS = {
   market: /\b(markets?|segments?|industry|sector|opportunit\w*|tam|sizing|demand|trends?)\b/i,
   fresh: /\b(latest|current|recent|today|this year|20[2-3]\d|news|now|startups?|compan(y|ies)|players|pricing|prices|funding|regulat\w*|markets?|industry)\b/i,
   summaryOnly: /^\s*(summari[sz]e|tl;?dr|condense)\b/i,
+  risk: /\b(risks?|downside|what could go wrong|headwinds?|red flags?)\b/i,
+  regulatory: /\b(regulat\w*|complian\w*|licens(e|ing|ure)|legal requirements?|jurisdiction\w*|kyc|aml)\b/i,
 };
 
 export function heuristicPlan(prompt: string): TaskPlan {
@@ -145,6 +147,8 @@ export function heuristicPlan(prompt: string): TaskPlan {
   const financial = SIGNALS.financial.test(prompt);
   const market = SIGNALS.market.test(prompt) && !competitive;
   const fresh = SIGNALS.fresh.test(prompt) && !(hasData && !SIGNALS.market.test(prompt) && !competitive);
+  const risk = SIGNALS.risk.test(prompt);
+  const regulatory = SIGNALS.regulatory.test(prompt);
 
   const steps: Array<{ cap: CapabilityId; type: string; description: string }> = [];
   if (fresh) steps.push({ cap: "web_research", type: "web_research", description: `Find current, citable facts for: ${prompt}` });
@@ -152,6 +156,8 @@ export function heuristicPlan(prompt: string): TaskPlan {
   if (competitive) steps.push({ cap: "competitive_analysis", type: "competitive_analysis", description: `Identify and compare the relevant competitors (positioning, pricing, features, comparable metrics, SWOT) for: ${prompt}` });
   if (financial) steps.push({ cap: "financial_analysis", type: "financial_analysis", description: `Estimate the key financial metrics, stating assumptions, for: ${prompt}` });
   if (dataNeeded) steps.push({ cap: "data_analysis", type: "data_analysis", description: `Compute rankings, shares, growth and summary statistics from the available data for: ${prompt}` });
+  if (regulatory) steps.push({ cap: "regulatory_compliance", type: "regulatory_compliance", description: `Identify the regulatory, licensing and compliance obligations relevant to: ${prompt}` });
+  if (risk) steps.push({ cap: "risk_assessment", type: "risk_assessment", description: `Identify and rate the key risks (market, execution, financial, regulatory), with mitigations, for: ${prompt}` });
   if (steps.length === 0) steps.push({ cap: "market_research", type: "research", description: `Research the subject of: ${prompt}` });
   const synth: CapabilityId = SIGNALS.summaryOnly.test(prompt) ? "summarization" : "report_generation";
   steps.push({ cap: synth, type: synth === "summarization" ? "summary" : "report_writing", description: `Synthesize the upstream work into the final deliverable for: ${prompt}` });

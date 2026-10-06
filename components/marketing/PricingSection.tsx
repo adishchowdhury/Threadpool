@@ -3,60 +3,9 @@
 import { useState } from "react";
 import { Check } from "lucide-react";
 import { LaunchConsoleButton } from "./LaunchConsoleButton";
+import { PLANS } from "@/lib/billing/plans";
 
 type Period = "monthly" | "yearly";
-
-interface Plan {
-  name: string;
-  tagline: string;
-  monthly: number;
-  yearly: number;
-  highlight?: boolean;
-  features: string[];
-}
-
-const PLANS: Plan[] = [
-  {
-    name: "Starter",
-    tagline: "Try Kraven on real tasks with no commitment.",
-    monthly: 0,
-    yearly: 0,
-    features: [
-      "Up to 50 tokens of budget per task",
-      "5 tasks per month",
-      "Full discovery, ranking & QA pipeline",
-      "Escrow, ledger & Circuit Breaker included",
-      "Community support",
-    ],
-  },
-  {
-    name: "Growth",
-    tagline: "For founders and small teams shipping regularly.",
-    monthly: 1999,
-    yearly: 19990,
-    highlight: true,
-    features: [
-      "Up to 500 tokens of budget per task",
-      "100 tasks per month",
-      "Priority agent routing & faster QA turnaround",
-      "Workflow memory & reuse across tasks",
-      "Email support within 1 business day",
-    ],
-  },
-  {
-    name: "Scale",
-    tagline: "For agencies and teams running Kraven across clients.",
-    monthly: 7999,
-    yearly: 79990,
-    features: [
-      "Unlimited budget per task (org-level cap)",
-      "Unlimited tasks per month",
-      "Dedicated agent capacity & custom marketplace agents",
-      "Full audit export & team seats",
-      "Priority support with a dedicated contact",
-    ],
-  },
-];
 
 function formatINR(amount: number) {
   if (amount === 0) return "0";

@@ -12,8 +12,15 @@ export interface DiscoverableAgent {
   avgLatencyMs: number;
   avgCost: number;
   totalJobs: number;
-  // Measured samples behind the stat fields; 0 = unrated.
+  // Measured samples behind the stat fields; 0 = unrated. When a
+  // capability-specific AgentCapabilityStat row exists for the capability
+  // this candidate was discovered for, these fields (and sampleCount) are
+  // THAT row's numbers, not the agent-wide aggregate - see
+  // localRegistryProvider.ts.
   sampleCount: number;
+  isExternal: boolean;
+  providerId: string | null;
+  providerName: string | null;
 }
 
 // Adapter-based agent marketplace. LocalRegistryProvider always works with

@@ -20,6 +20,18 @@ export function tokensToInr(tokens: number): number {
   return tokens * INR_PER_TOKEN;
 }
 
+// Inverse conversions, for inputs where the user enters a money amount and
+// Kraven needs a whole-token price (token accounting is always integer -
+// CLAUDE.md §16 - so these round UP: never quote/charge less than the real
+// cost of what was entered).
+export function inrToTokens(inr: number): number {
+  return Math.max(1, Math.ceil(inr / INR_PER_TOKEN));
+}
+
+export function usdToTokens(usd: number): number {
+  return Math.max(1, Math.ceil(usd / USD_PER_TOKEN));
+}
+
 function trim(n: number, digits: number): string {
   return n.toFixed(digits).replace(/\.?0+$/, "");
 }

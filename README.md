@@ -1,4 +1,5 @@
 ﻿# Kraven - Autonomous AI Workforce Optimizer
+Kraven manages the economics, permissions, routing and accountability of autonomous AI agents.
 
 A Sarvam-powered Manager Agent decomposes a task, discovers/filters/ranks AI worker agents from a registry, constructs a workforce, executes the workflow, runs independent QA, and settles payment through a two-tier virtual-token economy - all gated by a deterministic Circuit Breaker that no LLM can override.
 

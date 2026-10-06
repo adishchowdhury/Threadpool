@@ -15,7 +15,11 @@ import { generateWithReasoningGuard, upstreamBlock as renderUpstream, LANGUAGE_R
 import { runWebResearch } from "@/lib/capabilities/webResearch";
 import { runCompetitiveAnalysis } from "@/lib/capabilities/competitiveAnalysis";
 import { runDataAnalysis } from "@/lib/capabilities/dataAnalysis";
+import { runFinancialAnalysis } from "@/lib/capabilities/financialAnalysis";
 import { runIntegrationReview } from "@/lib/capabilities/review";
+import { classifyReportIntent, reportTemplate } from "@/lib/capabilities/reportIntent";
+import { describeEvidenceSignals, evidenceSignals } from "@/lib/manager/confidence";
+import { executeExternalTask } from "@/lib/agents/externalClient";
 import type { CapabilityRunInput, CapabilityRunOutput, SubtaskArtifacts, UpstreamItem } from "@/lib/capabilities/types";
 import type { ToolCallRecord } from "@/lib/tools/types";
 
@@ -25,6 +29,7 @@ const SPECIALISED_RUNTIMES: Record<string, (input: CapabilityRunInput) => Promis
   web_research: runWebResearch,
   competitive_analysis: runCompetitiveAnalysis,
   data_analysis: runDataAnalysis,
+  financial_analysis: runFinancialAnalysis,
   quality_verification: runIntegrationReview,
 };
 
@@ -46,13 +51,52 @@ const CITE_RULE = "- Cite retrieved sources only by their id tag, e.g. [S2], and
 const NO_SOURCES_RULE =
   "- No sources were retrieved for this step: do not write any citation tags such as [S1], and label figures from your own knowledge as estimates.";
 
-const REPORT_RULES = `This is the FINAL deliverable a business reader will see. Structure it exactly as:
+// The report is an Executive Decision Brief, not a generic polished
+// write-up: its structure is chosen per task type (classifyReportIntent),
+// and every section carries the epistemic rigor a user is paying for
+// instead of something they could get from a plain chat with an LLM.
+function reportRules(params: { taskPrompt: string; upstream: UpstreamItem[]; evidenceNote: string }): string {
+  const capabilitiesUsed = params.upstream.map((u) => u.capability ?? u.type).filter(Boolean);
+  const intent = classifyReportIntent(params.taskPrompt, capabilitiesUsed);
+  const template = reportTemplate(intent);
+
+  if (intent === "general") {
+    return `This is the FINAL deliverable a business reader will see. Structure it as:
+# <specific title>
+${template.sections.join("\n")}
+Use the upstream material as your evidence; carry any [S#] source tags through on every sourced statement. ${template.guidance} Aim for under 400 words.`;
+  }
+
+  return `This is the FINAL deliverable: an Executive Decision Brief. Structure it exactly as:
 # <specific report title>
-## Executive Summary  (3-4 sentences: the answer and the recommendation)
-## <one section per finding area, e.g. market segments, key financial metrics, competitive landscape>
-## Risks
-## Recommendation
-Use the upstream material as your evidence: combine it, resolve overlaps, drop raw notes and process commentary, and carry any [S#] source tags from the upstream material through on every sourced statement. Keep figures computed by the data analysis exactly as computed. Aim for under 700 words.`;
+${template.sections.join("\n")}
+Use the upstream material as your evidence - combine it, resolve overlaps, drop raw notes and process commentary, and carry any [S#] source tags through on every sourced statement. Keep figures computed by upstream analysis steps exactly as computed; never re-derive or round them differently.
+
+${template.guidance}
+
+Rules that make this a decision brief, not a generic report - this is what a user pays Kraven for instead of asking a chatbot the same question, so a section that is padded with generic text instead of task-specific substance defeats the point:
+- Bottom Line: open with ONE sentence naming the recommendation, then these labeled lines (skip only what genuinely doesn't apply):
+  - **Recommended Action:** the specific action, not "consider X".
+  - **Conditions:** what must be true for this to hold (a price, a threshold, an assumption).
+  - **Biggest Risk:** the single most important downside.
+  - **Biggest Upside:** the single most important upside.
+  - **Key Unknown:** the missing fact that would most change this if learned.
+  - **Next Step:** what the user should check, request, test, negotiate, or do next - concrete, not "do more research".
+  State a decision threshold wherever the evidence supports one ("attractive below $X", "proceed only if Y exceeds Z%") instead of "it depends." If no threshold can be computed from the evidence, say why, don't invent one.
+- Decision Scorecard (when comparing options/segments): a markdown table of factors with a numeric score, a confidence label (High/Medium/Low), and a one-line "why" per factor, then a weighted total. State the weights you used. Do not invent scores - base each one on the evidence gathered upstream and say so in "why". If something here is a business-quality judgment (is it a good company/product) versus a price/attractiveness judgment (is it a good deal at this price), keep those visibly separate - a strong business can be a bad investment at the wrong price.
+- Key Findings: 3-7 bullets, each a specific claim, not a restatement of the task.
+- Evidence: for the 3-6 most important claims in this report, show what backs them - a [S#] citation, "Kraven calculation" (if computed upstream), or "estimate" with its basis. Do not list a generic bibliography here - tie each entry to a specific claim above.
+- Any quantitative claim (market size, growth rate, margin, ratio, score) must be traceable: either it carries a [S#] tag, or it is explicitly labeled an estimate/assumption with what it's based on (reuse the assumption ledger from upstream financial analysis if one exists - do not re-estimate figures that step already derived). If sources disagreed upstream and that step reported a range or a contradiction, keep that disagreement visible here instead of collapsing it into one invented precise number.
+- Scenarios (only when the evidence supports quantifying more than one path - otherwise omit the section rather than padding it): Base / Bull / Bear cases, each with the 1-2 assumptions driving it and the resulting figure or outcome. Label every assumption; never let a scenario read as a fact.
+- Alternatives: name the realistic alternative(s) to the recommended action (a competing option, doing nothing, waiting, a cheaper/simpler approach) - a recommendation evaluated in isolation isn't a decision brief. Say concretely why the recommended path beats each alternative, not just that it exists.
+- Risks: for each of the 2-4 risks that actually matter to this decision (not a generic list), give likelihood (qualitative is fine), impact, the evidence behind it, and - where it changes the action - a mitigation or an early-warning sign to watch for. Where relevant, note the second-order effect (if this risk materializes, what does it trigger next, and is that actually worse or does it open a new opportunity).
+- Why This Could Be Wrong: a genuine red-team pass on the Bottom Line, not a hedge - the strongest evidence against the recommendation, the most fragile assumption it rests on, and what a sharp skeptic would say. If nothing credible contradicts the recommendation, say that plainly instead of manufacturing a weak objection.
+- What Could Change This Recommendation: 3-5 concrete, checkable triggers (a metric crossing a threshold, a specific event) - not vague hedging.
+- Confidence: state an overall confidence (High/Medium/Low) and justify it using this task's actual evidence base: ${params.evidenceNote} Do not claim high confidence when sources were thin or disagreed.
+- Methodology: 1-3 sentences on how the workforce reached this (what was researched/computed/verified) - not marketing copy about Kraven.
+- If two upstream steps reached different conclusions (e.g. the market researcher and a risk-focused step disagreed on which option is best), say so explicitly and explain how you weighed it, rather than silently picking one.
+Aim for under 1100 words - evidence density over length; cut a section entirely rather than filling it with generic filler when the evidence doesn't support it.`;
+}
 
 function buildWorkerPrompt(params: {
   type: string;
@@ -63,11 +107,13 @@ function buildWorkerPrompt(params: {
   paidDataBlock: string;
   // Whether any [S#]-tagged sources are available to cite.
   hasSources: boolean;
+  evidenceNote: string;
   upstream?: UpstreamItem[];
 }): string {
-  const upstreamBlock = renderUpstream(params.upstream ?? []);
+  const upstream = params.upstream ?? [];
+  const upstreamBlock = renderUpstream(upstream);
   const base = `${OUTPUT_RULES}\n${params.hasSources ? CITE_RULE : NO_SOURCES_RULE}`;
-  const rules = REPORT_CAPABILITY_SET.has(params.type) ? `${base}\n\n${REPORT_RULES}` : base;
+  const rules = REPORT_CAPABILITY_SET.has(params.type) ? `${base}\n\n${reportRules({ taskPrompt: params.taskPrompt, upstream, evidenceNote: params.evidenceNote })}` : base;
   return `You are a specialized worker agent hired by Kraven's Manager Agent.
 Your capability: ${params.type}.
 Overall task: "${params.taskPrompt}"
@@ -101,6 +147,41 @@ export interface SubtaskExecution {
   artifacts?: SubtaskArtifacts;
 }
 
+// Dispatches a subtask to a third-party agent over HTTP instead of Sarvam.
+// Deliberately skips every Kraven-internal mechanism (specialised runtimes,
+// tool calls, x402) - a provider's agent is opaque to Kraven; all Kraven
+// controls is the contract at the HTTP boundary. On any failure this never
+// throws - it returns the same shape a crashed internal worker produces
+// (worker.ts's own catch block below), so the orchestrator's existing
+// retry/reassignment logic needs no external-specific branch.
+async function executeExternalAgentSubtask(
+  agent: { id: string; endpoint: string | null; externalAuthSecretEncrypted: string | null },
+  params: { type: string; description: string; taskPrompt: string; feedback?: string; taskId?: string; subtaskId?: string },
+): Promise<SubtaskExecution> {
+  const start = Date.now();
+  const prompt = params.feedback
+    ? `${params.description}\n\n(Previous attempt was rejected: ${params.feedback}. Address this specifically.)`
+    : params.description || params.taskPrompt;
+
+  const result = await executeExternalTask(agent, {
+    taskId: params.taskId ?? "calibration",
+    subtaskId: params.subtaskId ?? "calibration",
+    capability: params.type,
+    prompt,
+    constraints: { budget: 0 },
+  });
+
+  const actualLatencyMs = Date.now() - start;
+  if (!result.ok) {
+    return {
+      output: `[EXTERNAL AGENT ${result.reason.toUpperCase()}] ${result.message}`,
+      actualLatencyMs,
+      source: "external_error",
+    };
+  }
+  return { output: result.output, actualLatencyMs, source: "external", artifacts: result.metadata ? { mode: "freeform" } : undefined };
+}
+
 // The normalized execution interface every hired agent runs through
 // (CLAUDE.md §14). Capabilities with a specialised runtime (tools +
 // structured output) are dispatched to it; everything else uses the generic
@@ -123,6 +204,22 @@ export async function executeSubtask(params: {
   knownSources?: Source[];
 }): Promise<SubtaskExecution> {
   const start = Date.now();
+
+  // External agents are opaque third-party HTTP services: every
+  // Kraven-internal mechanism below (specialised runtimes, tool calls, x402)
+  // is Sarvam-specific and must be skipped entirely for them.
+  if (params.agentId) {
+    const agentRow = await db.agent.findUnique({
+      where: { id: params.agentId },
+      select: { isExternal: true, endpoint: true, externalAuthSecretEncrypted: true },
+    });
+    if (agentRow?.isExternal) {
+      return executeExternalAgentSubtask(
+        { id: params.agentId, endpoint: agentRow.endpoint, externalAuthSecretEncrypted: agentRow.externalAuthSecretEncrypted },
+        params,
+      );
+    }
+  }
 
   const runtime = SPECIALISED_RUNTIMES[params.type];
   if (runtime) {
@@ -287,7 +384,7 @@ ${paidText}
     const { text, usage } = await generateWithReasoningGuard({
       tier,
       system: resolvedAgent?.systemPrompt,
-      prompt: buildWorkerPrompt({ ...params, webBlock, paidDataBlock, feedbackBlock, hasSources: sources.length > 0 }),
+      prompt: buildWorkerPrompt({ ...params, webBlock, paidDataBlock, feedbackBlock, hasSources: sources.length > 0, evidenceNote: describeEvidenceSignals(evidenceSignals(sources)) }),
     });
     let output = stripModelSourceList(text);
     const citationCheck = checkCitations(output, sources);

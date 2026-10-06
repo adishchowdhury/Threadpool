@@ -50,21 +50,30 @@ export async function seedRegistry() {
 // wallets - used by `/api/reset` for repeatable, resettable judge demos.
 // Measured calibration is intentionally kept: it is data about the agents,
 // not about any task, and re-measuring costs real model calls.
+//
+// External agents/providers are marketplace SUPPLY, not task-run state - a
+// demo reset must not wipe a provider's registration, calibration or
+// accumulated performance history, or the "performance persists across
+// tasks and improves routing" story breaks on every reset. Only their
+// task-scoped financial/run records (ledger, escrow, bids, subtasks,
+// events) are wiped like everyone else's.
 export async function resetDatabase() {
+  const externalAgentIds = (await db.agent.findMany({ where: { isExternal: true } })).map((a) => a.id);
+
   await db.$transaction([
     db.agentLedger.deleteMany(),
     db.centralLedger.deleteMany(),
     db.agentEscrow.deleteMany(),
     db.centralEscrow.deleteMany(),
     db.bid.deleteMany(),
-    db.agentPerformance.deleteMany(),
+    db.agentPerformance.deleteMany({ where: { agentId: { notIn: externalAgentIds } } }),
     db.subtask.deleteMany(),
     db.securityEvent.deleteMany(),
     db.event.deleteMany(),
     db.task.deleteMany(),
     db.workflowMemory.deleteMany(),
-    db.wallet.deleteMany(),
-    db.agent.deleteMany(),
+    db.wallet.deleteMany({ where: { agentId: { notIn: externalAgentIds } } }),
+    db.agent.deleteMany({ where: { isExternal: { not: true } } }),
   ]);
 
   await seedRegistry();

@@ -6,10 +6,12 @@ import { useEventStream, type KravenEvent } from "@/lib/hooks/useEventStream";
 import { Composer } from "@/components/dashboard/Composer";
 import { DetailsDrawer } from "@/components/dashboard/DetailsDrawer";
 import { MarketplacePanel } from "@/components/dashboard/MarketplacePanel";
+import { OrgWorkspace } from "@/components/dashboard/OrgWorkspace";
 import { RunThread } from "@/components/dashboard/RunThread";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { firebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/lib/use-auth-user";
+import { greet } from "@/lib/greeting";
 import { cn } from "@/lib/utils";
 import type { AgentRecord, TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord, SecurityEventRecord } from "@/lib/types";
 import { Loader2, PanelLeftOpen, PanelRight } from "lucide-react";
@@ -55,6 +57,14 @@ export function Dashboard() {
   const { user, loading: authLoading } = useAuthUser();
   const authorized = !firebaseConfigured || !!user;
 
+  // Computed client-side only (not on the initial render) so the server's
+  // clock/timezone never disagrees with the visitor's and causes a
+  // hydration mismatch - starts blank and fills in right after mount.
+  const [greeting, setGreeting] = useState<string | null>(null);
+  useEffect(() => {
+    setGreeting(greet(new Date().getHours(), user?.displayName));
+  }, [user?.displayName]);
+
   useEffect(() => {
     if (firebaseConfigured && !authLoading && !user) {
       router.replace("/");
@@ -65,12 +75,6 @@ export function Dashboard() {
   const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [task, setTask] = useState<TaskRecord | null>(null);
-
-  // Opens the task named by a shared ?task=<id> link (see Sidebar's "Share").
-  useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("task");
-    if (id) setTaskId(id);
-  }, []);
   const [ledger, setLedger] = useState<CentralLedgerRecord[]>([]);
   const [historicalEvents, setHistoricalEvents] = useState<KravenEvent[]>([]);
   const [paymentIntents, setPaymentIntents] = useState<any[]>([]);
@@ -79,6 +83,18 @@ export function Dashboard() {
   const [algorandTransactions, setAlgorandTransactions] = useState<AlgorandLedgerTransactionRecord[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEventRecord[]>([]);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+  const [mode, setMode] = useState<"user" | "org">("user");
+
+  // Opens the task named by a shared ?task=<id> link (see Sidebar's "Share"),
+  // and lets other pages (e.g. the Profile page's "Manage organization" link)
+  // land directly in Organization mode instead of requiring a manual click.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("task");
+    if (id) setTaskId(id);
+    if (params.get("mode") === "org") setMode("org");
+  }, []);
+
   // Layout. The sidebar is a column on desktop (collapsible) and an overlay on
   // small screens; the run-details drawer is closed until asked for.
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -277,8 +293,20 @@ export function Dashboard() {
         <Sidebar
           activeTaskId={taskId}
           refreshKey={`${taskId ?? "none"}:${task?.status ?? ""}`}
-          onSelect={handleSelectFromHistory}
-          onNewTask={handleNewTask}
+          mode={mode}
+          onModeChange={(m) => {
+            setMode(m);
+            setMobileSidebarOpen(false);
+            if (m === "user") refreshAgents();
+          }}
+          onSelect={(id) => {
+            setMode("user");
+            handleSelectFromHistory(id);
+          }}
+          onNewTask={() => {
+            setMode("user");
+            handleNewTask();
+          }}
           onOpenAgents={() => {
             setMarketplaceOpen(true);
             setMobileSidebarOpen(false);
@@ -290,7 +318,7 @@ export function Dashboard() {
         />
       </aside>
 
-      {/* Conversation */}
+      {/* Conversation / Organization */}
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-4">
           <button
@@ -308,16 +336,16 @@ export function Dashboard() {
           >
             <PanelLeftOpen className="size-4.5" />
           </button>
-          <div className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={title}>
-            {title}
+          <div className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={mode === "org" ? "My Organization" : title}>
+            {mode === "org" ? "My Organization" : title}
           </div>
-          {isRunning && (
+          {mode === "user" && isRunning && (
             <span className="animate-in fade-in zoom-in-95 flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground duration-200">
               <Loader2 className="size-3 animate-spin" />
               Working · {elapsedSeconds}s
             </span>
           )}
-          {hasTask && (
+          {mode === "user" && hasTask && (
             <button
               type="button"
               onClick={() => setDetailsOpen((o) => !o)}
@@ -333,10 +361,20 @@ export function Dashboard() {
           )}
         </header>
 
+        {mode === "org" ? (
+          <OrgWorkspace />
+        ) : (
+          <>
         <div data-thread-scroller className="min-h-0 flex-1 overflow-y-auto">
           {!hasTask ? (
             <div className="animate-in fade-in mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center px-4 pb-16 pt-4 duration-300">
-              <h1 className="mb-8 text-center text-3xl font-semibold tracking-tight sm:text-[2rem]">What should your AI workforce accomplish?</h1>
+              {greeting && (
+                <p className="animate-in fade-in mb-2 text-center text-sm font-medium text-muted-foreground duration-300">{greeting}</p>
+              )}
+              <h1 className="mb-8 text-center text-3xl font-semibold tracking-tight sm:text-[2rem]">
+                Give me something{" "}
+                <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">hard</span>.
+              </h1>
               <div className="w-full">
                 <Composer
                   onCreated={handleCreated}
@@ -391,11 +429,13 @@ export function Dashboard() {
             </div>
           </div>
         )}
+          </>
+        )}
       </main>
 
       {/* Run details */}
       {/* Mounted only while open so the workflow graph measures a real container. */}
-      {hasTask && detailsOpen && (
+      {mode === "user" && hasTask && detailsOpen && (
         <aside className="animate-in slide-in-from-right-4 fade-in fixed inset-y-0 right-0 z-40 w-[min(26rem,100vw)] shrink-0 border-l border-border duration-200 lg:static lg:z-auto lg:w-104">
           <DetailsDrawer
             task={task}

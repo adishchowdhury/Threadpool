@@ -5,6 +5,8 @@ import { emitEvent } from "@/lib/events/emit";
 import { runTask } from "@/lib/manager/orchestrator";
 import { ensureDemoUser, DEMO_USER_ID } from "@/lib/db/demoUser";
 import { checkTaskSanity } from "@/lib/manager/sanityCheck";
+import { resolveSessionUser } from "@/lib/auth/session";
+import { resolveOrCreatePersonalOrg } from "@/lib/auth/rbac";
 
 // The orchestrator (run via after() below) now runs to completion inside
 // this invocation instead of racing the platform freezing it post-response,
@@ -16,16 +18,21 @@ import { checkTaskSanity } from "@/lib/manager/sanityCheck";
 export const maxDuration = 300;
 
 const createTaskSchema = z.object({
-  prompt: z.string().min(3).max(2000),
+  prompt: z.string().min(3).max(6000),
   budget: z.number().int().positive().max(1000),
   qualityThreshold: z.number().int().min(0).max(100).optional(),
   deadline: z.string().datetime().optional(),
 });
 
-export async function GET() {
-  // Chat history - scoped to the demo user until real accounts exist.
+export async function GET(request: Request) {
+  const session = await resolveSessionUser(request);
+  if ("error" in session) return NextResponse.json({ error: session.error }, { status: session.status });
+  const organizationId = await resolveOrCreatePersonalOrg(session.user);
+
+  // Chat history - scoped to the caller's organization (§6), not merely
+  // their user id, so teammates sharing an org see the same task list.
   const tasks = await db.task.findMany({
-    where: { userId: DEMO_USER_ID },
+    where: { organizationId },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
@@ -33,10 +40,22 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const session = await resolveSessionUser(request);
+  if ("error" in session) return NextResponse.json({ error: session.error }, { status: session.status });
+  const organizationId = await resolveOrCreatePersonalOrg(session.user);
+
   const body = await request.json();
   const parsed = createTaskSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+    const { fieldErrors, formErrors } = parsed.error.flatten();
+    const message =
+      Object.entries(fieldErrors)
+        .map(([field, errors]) => (errors?.length ? `${field}: ${errors.join(", ")}` : null))
+        .filter(Boolean)
+        .join("; ") ||
+      formErrors.join("; ") ||
+      "Invalid request.";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   const { prompt, budget, qualityThreshold, deadline } = parsed.data;
@@ -47,13 +66,18 @@ export async function POST(request: Request) {
   const sanity = await checkTaskSanity(prompt);
   if (!sanity.valid) {
     return NextResponse.json(
-      { error: "Invalid task", message: "Please provide a clear, actionable task for Kraven to work on." },
+      { error: "Please provide a clear, actionable task for Kraven to work on." },
       { status: 400 },
     );
   }
 
   // Guards against a freshly-migrated DB that hasn't run the seed script yet.
   await ensureDemoUser();
+  await db.user.upsert({
+    where: { id: session.user.userId },
+    update: {},
+    create: { id: session.user.userId, email: session.user.email ?? `${session.user.userId}@kraven.local`, name: session.user.name ?? session.user.userId, isDemo: session.user.userId === DEMO_USER_ID },
+  });
 
   const task = await db.task.create({
     data: {
@@ -63,7 +87,8 @@ export async function POST(request: Request) {
       qualityThreshold: qualityThreshold ?? 70,
       deadline: deadline ? new Date(deadline) : null,
       status: "CREATED",
-      userId: DEMO_USER_ID,
+      userId: session.user.userId,
+      organizationId,
     },
   });
 

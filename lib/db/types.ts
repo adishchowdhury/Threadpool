@@ -2,6 +2,8 @@
 
 export type WalletType = "MANAGER" | "AGENT" | "USER";
 export type AgentStatus = "ACTIVE" | "INACTIVE" | "REVOKED";
+export type AgentLifecycleStatus = "PENDING" | "CALIBRATING" | "ACTIVE" | "PAUSED" | "SUSPENDED" | "FAILED_CALIBRATION";
+export type ProviderStatus = "PENDING" | "ACTIVE" | "SUSPENDED" | "REJECTED";
 export type TaskStatus =
   | "CREATED"
   | "PLANNING"
@@ -22,6 +24,8 @@ export type SubtaskStatus =
 export type EscrowStatus = "LOCKED" | "RELEASED" | "REFUNDED";
 export type TxType = "LOCK" | "PAYOUT" | "REFUND" | "BLOCKED_ATTEMPT";
 export type TxStatus = "APPROVED" | "BLOCKED";
+export type CredentialStatus = "ACTIVE" | "EXPIRED" | "REVOKED" | "CONSUMED";
+export type OrgRole = "OWNER" | "ADMIN" | "OPERATOR" | "VIEWER";
 
 // The shape callers depend on for `db` and for the `tx` arg inside
 // `db.$transaction(async (tx) => …)`. Both share one API;

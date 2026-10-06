@@ -11,11 +11,13 @@ import { filterCandidatesStaged } from "@/lib/manager/filter";
 import { collectBids } from "@/lib/manager/bidding";
 import { rankCandidates } from "@/lib/manager/rank";
 import { lockAgentEscrow, releaseAgentEscrow, refundAgentEscrow } from "@/lib/economy/escrow";
+import { issueCredential, CREDENTIAL_OPERATIONS } from "@/lib/economy/credentials";
 import { executeSubtask } from "@/lib/manager/worker";
 import { verifySubtaskOutput } from "@/lib/manager/qa";
 import { isSarvamConfigured } from "@/lib/manager/sarvam";
 import type { QaVerdict } from "@/lib/manager/schemas";
 import { checkReportNumbers } from "@/lib/manager/numericCheck";
+import { computeOverallConfidence } from "@/lib/manager/confidence";
 import { buildFinalReport } from "@/lib/manager/finalReport";
 import { recordPerformanceAndUpdateReputation } from "@/lib/economy/reputation";
 import { findSimilarWorkflow, storeWorkflow } from "@/lib/manager/workflowMemory";
@@ -245,12 +247,26 @@ export async function runTask(taskId: string) {
         payload: { subtaskId: subtask.id, agentId: candidate.agent.id, explanation: candidate.explanation, scoreBreakdown: candidate.scoreBreakdown },
       });
 
+      // Scoped credential (§4): a second, independent authorization layer
+      // for exactly this subtask/agent, bounded to the bid amount it was
+      // selected at. The Circuit Breaker inside lockAgentEscrow/
+      // releaseAgentEscrow still runs unchanged - this is additive, not a
+      // replacement.
+      const credential = await issueCredential({
+        taskId,
+        subtaskId: subtask.id,
+        agentId: candidate.agent.id,
+        allowedOperations: CREDENTIAL_OPERATIONS,
+        maxSpend: candidate.bidAmount,
+      });
+
       const lockResult = await lockAgentEscrow({
         taskId,
         subtaskId: subtask.id,
         agentId: candidate.agent.id,
         amount: candidate.bidAmount,
         purpose: subtask.requiredCapability,
+        credentialId: credential.id,
       });
 
       // Close the race between a concurrent cancelTask() refund sweep and
@@ -411,7 +427,7 @@ export async function runTask(taskId: string) {
       // intended demo-mode path, so it still goes through QA's own
       // structural fallback check as normal.
       const qa =
-        (exec.source === "local_fallback" && isSarvamConfigured()) || exec.source === "error"
+        (exec.source === "local_fallback" && isSarvamConfigured()) || exec.source === "error" || exec.source === "external_error"
           ? {
               verdict: {
                 passed: false,
@@ -419,8 +435,10 @@ export async function runTask(taskId: string) {
                 reason:
                   exec.source === "error"
                     ? "Execution crashed before producing output, so there was nothing to review."
-                    : "The AI provider errored on this attempt and only a placeholder was produced, so there was nothing substantive to review.",
-                issues: [exec.source === "error" ? "execution error" : "provider error during execution"],
+                    : exec.source === "external_error"
+                      ? `The external agent's endpoint did not return a usable result, so there was nothing substantive to review: ${exec.output}`
+                      : "The AI provider errored on this attempt and only a placeholder was produced, so there was nothing substantive to review.",
+                issues: [exec.source === "error" ? "execution error" : exec.source === "external_error" ? "external agent execution error" : "provider error during execution"],
               } satisfies QaVerdict,
               source: "rubric" as const,
               notes: [] as string[],
@@ -679,12 +697,24 @@ export async function runTask(taskId: string) {
     },
   });
 
+  // Overall confidence is computed from evidence actually gathered this
+  // task (source diversity, arithmetic consistency, independent review
+  // score) - never a model's self-reported confidence. Attached as
+  // metadata for the UI; it never rewrites the report text itself.
+  const confidence = computeOverallConfidence({
+    sources: allSources,
+    numeric: numericChecks,
+    reviewScore: reviewOutcome?.score ?? null,
+  });
+  await emitEvent(db, { taskId, actor: "system", eventType: "CONFIDENCE_COMPUTED", payload: confidence });
+
   const finalOutput = {
     content: reportContent,
     report_from: report.reportType,
     worker_outputs: report.workerOutputs,
     avg_quality: Math.round(avgQuality),
     numeric_checks: numericChecks,
+    confidence,
     subtask_types: finalSubtasks.map((st) => st.type),
     incomplete_subtasks: degraded.length > 0 ? degraded : undefined,
     sources: allSources.map((src) => ({ id: src.id, title: src.title, url: src.url, kind: src.kind, cited: used.citedOnly && used.sources.includes(src) })),

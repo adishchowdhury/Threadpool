@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db/client";
 import { lockAgentEscrow, releaseAgentEscrow } from "@/lib/economy/escrow";
+import { issueCredential, CREDENTIAL_OPERATIONS } from "@/lib/economy/credentials";
 import { emitEvent } from "@/lib/events/emit";
 import { CIRCUIT_BREAKER_DEMO_AGENT_ID, ensureCircuitBreakerDemoAgent } from "@/lib/agents/demoFixture";
 
@@ -41,12 +42,25 @@ export async function POST(request: Request) {
     },
   });
 
+  // §4 demo: a real scoped credential, capped at the same authorized amount
+  // as the escrow - so the oversized payout below is independently blocked
+  // by BOTH the Circuit Breaker (purpose/amount) and this credential
+  // ceiling, not just one of them.
+  const credential = await issueCredential({
+    taskId: task.id,
+    subtaskId: subtask.id,
+    agentId: CIRCUIT_BREAKER_DEMO_AGENT_ID,
+    allowedOperations: CREDENTIAL_OPERATIONS,
+    maxSpend: authorizedAmount,
+  });
+
   const lock = await lockAgentEscrow({
     taskId: task.id,
     subtaskId: subtask.id,
     agentId: CIRCUIT_BREAKER_DEMO_AGENT_ID,
     amount: authorizedAmount,
     purpose: "market_research",
+    credentialId: credential.id,
   });
 
   if (lock.blocked) {
@@ -82,6 +96,8 @@ export async function POST(request: Request) {
     stage: "payout_request",
     authorizedAmount,
     requestedAmount: rogueAmount,
+    credentialId: credential.id,
+    credentialMaxSpend: credential.maxSpend,
     blocked: release.blocked,
     reason: release.blocked ? release.reason : null,
   });

@@ -60,6 +60,26 @@ export function capabilityRubric(capability: string, output: string, artifacts: 
       }
       break;
     }
+    case "financial_analysis": {
+      if (a.mode === "structured") {
+        if ((a.financialMetrics?.length ?? 0) === 0) failures.push("produced no financial metrics");
+        const unjustifiedEstimates = a.financialMetrics?.filter((m) => m.basis === "estimate" && m.assumptions.length === 0) ?? [];
+        if (unjustifiedEstimates.length) {
+          failures.push(
+            `${unjustifiedEstimates.length} metric(s) marked "estimate" with no assumptions listed (${unjustifiedEstimates.map((m) => m.name).join(", ")}) - every estimate must state what it's derived from`,
+          );
+        }
+        const observedCount = a.financialMetrics?.filter((m) => m.basis === "observed").length ?? 0;
+        if (a.financialMetrics?.length) notes.push(`${observedCount} metric(s) observed from sources, ${a.financialMetrics.length - observedCount} estimated with stated assumptions`);
+        if (knownSources.length === 0 && observedCount === 0) {
+          notes.push("no sources could be retrieved anywhere in this workflow, so clearly-labeled estimates are the expected basis - judge the labeling and reasoning, not the absence of sources");
+        }
+      } else if (a.mode !== "fallback") {
+        const cc = checkCitations(output, knownSources);
+        if (cc.invalid.length) failures.push(`cites source ids that were never retrieved (${cc.invalid.join(", ")})`);
+      }
+      break;
+    }
     case "data_analysis": {
       const ok = a.analysis?.filter((r) => r.ok).length ?? 0;
       if ((a.datasets?.length ?? 0) > 0 && ok === 0) failures.push("data was available but no analysis operation computed successfully");

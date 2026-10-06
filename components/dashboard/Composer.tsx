@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { useAuthUser } from "@/lib/use-auth-user";
 import { firebaseConfigured } from "@/lib/firebase";
 import { LoginDialog } from "@/components/auth/login-dialog";
+import { authHeader } from "@/lib/auth/clientAuth";
 import { tokenRateLabel, tokensWorthLabel } from "@/lib/economy/tokenValue";
 
 const BAR_COUNT = 32;
@@ -277,7 +278,7 @@ export function Composer({
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeader()) },
         body: JSON.stringify({ prompt: text, budget, qualityThreshold }),
       });
       const data = await res.json();

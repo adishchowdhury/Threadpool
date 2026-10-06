@@ -98,13 +98,19 @@ function fallbackVerdict(output: string, qualityThreshold: number): QaVerdict {
 // plain deliverable.
 const QA_FOCUS: Record<string, string> = {
   quality_verification:
-    "This output is a REVIEW of other workers' deliverable. Judge the review itself: is it rigorous, specific, and are its issues correctly attributed with actionable fixes? A review that (correctly) rejects weak work can score highly.",
+    "This output is a REVIEW of other workers' deliverable. Judge the review itself: is it rigorous, specific, and are its issues correctly attributed with actionable fixes? A review that (correctly) rejects weak work can score highly. A review's 'Checks performed' section lists concrete, code-verified evidence (citations cross-checked against retrieved sources, arithmetic independently recomputed, structure checked) - this is real verification work, not a placeholder, even when the reviewer model's own qualitative judgment did not run and even when it finds zero issues. Do NOT fail a review merely for finding nothing wrong when 'Checks performed' shows genuine, specific checks were actually run (nonzero steps reviewed, citations/arithmetic actually counted) - that is a legitimate clean bill of health, not a rubber stamp. Only fail it if 'Checks performed' is vague/absent, or if it is contradicted by an obvious problem in the deliverable you can see directly.",
   web_research:
     "Judge whether the sourced findings actually address the assignment and are kept separate from the model's own analysis. Citation validity has already been verified by code.",
   data_analysis:
     "All figures were computed by a deterministic engine. Judge whether the chosen analyses answer the assignment and whether the interpretation is sound and appropriately cautious.",
   competitive_analysis:
     "Judge whether the right competitors are compared on meaningful dimensions and whether the SWOT and takeaways are specific rather than generic.",
+  financial_analysis:
+    "Judge whether every metric's observed/estimate labeling is honest (an estimate must list real assumptions, not a vague one), whether confidence levels look justified by the evidence, and whether disagreement between sources was surfaced rather than papered over with a single invented precise number.",
+  risk_assessment:
+    "Judge whether the risks named are specific to this task (not generic boilerplate like 'market risk exists'), each has a plausible likelihood/impact and a concrete mitigation or monitoring signal, and claims are grounded in retrieved sources or clearly labeled as judgment.",
+  regulatory_compliance:
+    "Judge whether the regulatory/compliance obligations named are specific (named regulator, jurisdiction, requirement) rather than a generic 'consult a lawyer' disclaimer, and whether the practical impact on the opportunity is stated.",
 };
 
 // QA is deliberately separate from the worker that produced the output.
@@ -158,6 +164,35 @@ export async function verifySubtaskOutput(params: {
         score: params.qualityThreshold,
         reason: "No analysable data was supplied upstream; the analyst reported this without inventing figures. The gap belongs to the upstream step.",
         issues: [],
+      },
+      source: "rubric",
+      notes: capability.notes,
+    };
+  }
+
+  // Integration review that ran without the reviewer MODEL (Sarvam call
+  // timed out/errored, or no credentials - see review.ts's "fallback" mode):
+  // runIntegrationReview's own deterministic checks (citations, arithmetic,
+  // required sections) already ran unconditionally and already capped
+  // approved/score if they found anything. Judging the resulting summary
+  // with the same semantic "is this rigorous and specific" rubric we'd apply
+  // to a real reviewer is self-defeating - an honest "no reviewer model
+  // available, deterministic checks only, nothing wrong found" report will
+  // always lose on that rubric for having nothing to attribute, even though
+  // it's real work. And unlike a bad worker output, retrying can't fix a
+  // provider outage. So trust Kraven's own verdict instead of asking the
+  // (also Sarvam-backed) QA model to re-judge a report about why Sarvam
+  // didn't run.
+  if (params.type === "quality_verification" && params.artifacts?.mode === "fallback" && params.artifacts.review) {
+    const { approved, score, issues } = params.artifacts.review;
+    return {
+      verdict: {
+        passed: approved && score >= params.qualityThreshold,
+        score,
+        reason: approved
+          ? "Integration review ran via Kraven's deterministic checks only (no reviewer model available); no blocking issues were found."
+          : `Integration review ran via Kraven's deterministic checks only (no reviewer model available) and found blocking issues: ${issues.map((i) => i.description).join("; ")}`,
+        issues: issues.map((i) => i.description),
       },
       source: "rubric",
       notes: capability.notes,

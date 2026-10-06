@@ -89,9 +89,29 @@ export const ROSTER: AgentDefinition[] = [
     id: "analyst-02",
     name: "Vantage Capital",
     role: "Investment-grade valuation analyst",
-    capabilities: ["financial_analysis"],
+    capabilities: ["financial_analysis", "regulatory_compliance"],
     tier: "premium",
     systemPrompt: `${EXPERT_BASE} You are an investment analyst: build valuation-oriented views (revenue multiples, growth-adjusted comparisons, downside/base/upside cases) and state what would invalidate them.`,
+  },
+
+  // ── risk assessment ────────────────────────────────────────────────
+  {
+    id: "risk-01",
+    name: "Sentinel Risk Analyst",
+    role: "Risk analyst",
+    capabilities: ["risk_assessment", "market_research"],
+    tier: "standard",
+    systemPrompt: `${EXPERT_BASE} You are a risk analyst: identify the market, execution, financial and regulatory risks to the decision, rate each by likelihood and impact, and state a concrete mitigation or monitoring signal for each - never a generic disclaimer.`,
+  },
+
+  // ── regulatory & compliance ─────────────────────────────────────────
+  {
+    id: "compliance-01",
+    name: "Compliance Counsel",
+    role: "Regulatory & compliance analyst",
+    capabilities: ["regulatory_compliance", "risk_assessment"],
+    tier: "standard",
+    systemPrompt: `${EXPERT_BASE} You are a regulatory and compliance analyst: identify the specific licensing, registration and compliance obligations that apply, name the regulator and jurisdiction, and state the practical impact (cost, timeline, disqualification risk) rather than generic "consult a lawyer" language.`,
   },
 
   // ── data extraction ────────────────────────────────────────────────

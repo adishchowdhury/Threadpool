@@ -20,6 +20,8 @@ function model(name: string, schema: Schema<any>): Model<any> {
 
 const WALLET_TYPES = ["MANAGER", "AGENT", "USER"] as const;
 const AGENT_STATUSES = ["ACTIVE", "INACTIVE", "REVOKED"] as const;
+const AGENT_LIFECYCLE_STATUSES = ["PENDING", "CALIBRATING", "ACTIVE", "PAUSED", "SUSPENDED", "FAILED_CALIBRATION"] as const;
+const PROVIDER_STATUSES = ["PENDING", "ACTIVE", "SUSPENDED", "REJECTED"] as const;
 const TASK_STATUSES = [
   "CREATED",
   "PLANNING",
@@ -46,6 +48,8 @@ const SUBTASK_STATUSES = [
 const ESCROW_STATUSES = ["LOCKED", "RELEASED", "REFUNDED"] as const;
 const TX_TYPES = ["LOCK", "PAYOUT", "REFUND", "BLOCKED_ATTEMPT"] as const;
 const TX_STATUSES = ["APPROVED", "BLOCKED"] as const;
+const CREDENTIAL_STATUSES = ["ACTIVE", "EXPIRED", "REVOKED", "CONSUMED"] as const;
+const ORG_ROLES = ["OWNER", "ADMIN", "OPERATOR", "VIEWER"] as const;
 
 // ── USERS ──────────────────────────────────────────────────────────────
 const userSchema = new Schema<any>(
@@ -105,9 +109,103 @@ const agentSchema = new Schema<any>(
     avgLatencyMs: { type: Number, default: 0 },
     avgCost: { type: Number, default: 0 },
     reputation: { type: Number, default: 50 },
+    // ── External agent marketplace fields (unused/default for built-ins) ──
+    isExternal: { type: Boolean, default: false },
+    providerId: { type: String, default: null },
+    // AES-256-GCM ciphertext of the provider-supplied outbound auth token
+    // Kraven sends TO the external endpoint. Never returned to any client.
+    externalAuthSecretEncrypted: { type: String, default: null },
+    // Separate from `status` (the routing gate, unchanged semantics): this
+    // tracks WHERE an external agent is in onboarding. Transitions here
+    // drive `status`, never the reverse.
+    lifecycleStatus: { type: String, enum: AGENT_LIFECYCLE_STATUSES, default: null },
+    // ── Governance (§7 polish) ──────────────────────────────────────────
+    // Rolling failure counter since the last success - reset on any success.
+    // Reaching the threshold auto-demotes ACTIVE -> INACTIVE (reversible),
+    // distinct from the permanent severe-violation REVOKE in circuitBreaker.ts.
+    consecutiveFailures: { type: Number, default: 0 },
+    lastHealthCheckAt: { type: Date, default: null },
+    lastHealthStatus: { type: String, default: null },
   },
   { timestamps: true, versionKey: false },
 );
+
+// ── AGENT PROVIDERS ────────────────────────────────────────────────────
+// A provider/org is owned by exactly one logged-in user (their Firebase uid,
+// or DEMO_USER_ID in local demo mode with no Firebase configured) - this is
+// the "Organization mode" a user switches into, not a separately-keyed
+// account. One org per user for the MVP (lib/auth/session.ts resolves the
+// owner; ownership of each agent is still checked against providerId).
+const agentProviderSchema = new Schema<any>(
+  {
+    _id: idField,
+    name: { type: String, required: true },
+    description: { type: String, default: null },
+    contactEmail: { type: String, default: null },
+    ownerUserId: { type: String, required: true, unique: true },
+    status: { type: String, enum: PROVIDER_STATUSES, default: "ACTIVE" },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+// ── ORGANIZATION MEMBERSHIP (multi-tenancy §6) ────────────────────────
+// An AgentProvider row doubles as the tenant/"organization" record (it was
+// already a 1-user-owned org with its own status) - this table is what
+// turns that into real multi-user RBAC instead of a parallel Organization
+// model duplicating the same concept.
+const organizationMemberSchema = new Schema<any>(
+  {
+    _id: idField,
+    organizationId: { type: String, required: true }, // == AgentProvider._id
+    userId: { type: String, required: true },
+    role: { type: String, enum: ORG_ROLES, required: true, default: "VIEWER" },
+  },
+  { timestamps: true, versionKey: false },
+);
+organizationMemberSchema.index({ organizationId: 1, userId: 1 }, { unique: true });
+
+// ── AUTHORIZATION CREDENTIALS (scoped permissions §4) ─────────────────
+// A credential is a second, independent gate alongside the Circuit Breaker
+// (lib/economy/circuitBreaker.ts): it never replaces the amount/status/
+// escrow checks there, it adds a task/subtask-scoped, time-bounded,
+// operation-scoped ceiling that is checked separately.
+const authorizationCredentialSchema = new Schema<any>(
+  {
+    _id: idField,
+    taskId: { type: String, required: true },
+    subtaskId: { type: String, default: null },
+    agentId: { type: String, required: true },
+    allowedOperations: { type: String, required: true }, // JSON-encoded string[]
+    maxSpend: { type: Number, required: true },
+    spent: { type: Number, default: 0 },
+    status: { type: String, enum: CREDENTIAL_STATUSES, default: "ACTIVE" },
+    expiresAt: { type: Date, required: true },
+    revokedReason: { type: String, default: null },
+  },
+  { timestamps: true, versionKey: false },
+);
+authorizationCredentialSchema.index({ taskId: 1, agentId: 1 });
+
+// ── AGENT CAPABILITY STATS ─────────────────────────────────────────────
+// Per-(agent, capability) measured stats - a strict superset of the
+// agent-level aggregate on `Agent` (lib/agents/stats.ts writes both from the
+// same underlying samples). An agent can be excellent at one capability and
+// mediocre at another; routing should see that, not one blended number.
+const agentCapabilityStatSchema = new Schema<any>(
+  {
+    _id: idField,
+    agentId: { type: String, required: true },
+    capability: { type: String, required: true },
+    sampleCount: { type: Number, default: 0 },
+    successRate: { type: Number, default: 0 },
+    avgQuality: { type: Number, default: 0 },
+    avgLatencyMs: { type: Number, default: 0 },
+    avgCost: { type: Number, default: 0 },
+    reputation: { type: Number, default: 0 },
+  },
+  { timestamps: true, versionKey: false },
+);
+agentCapabilityStatSchema.index({ agentId: 1, capability: 1 }, { unique: true });
 
 // ── TASKS ──────────────────────────────────────────────────────────────
 const taskSchema = new Schema<any>(
@@ -122,11 +220,16 @@ const taskSchema = new Schema<any>(
     managerId: { type: String, default: "manager-agent" },
     finalOutput: { type: String, default: null },
     userId: { type: String, default: "demo-user" },
+    // Tenancy boundary (§6) - the AgentProvider id acting as this task's
+    // organization. Nullable so pre-existing tasks and the bare demo-user
+    // fallback (Firebase unconfigured) keep working unscoped.
+    organizationId: { type: String, default: null },
     pinned: { type: Boolean, default: false },
   },
   { timestamps: true, versionKey: false },
 );
 taskSchema.index({ userId: 1 });
+taskSchema.index({ organizationId: 1 });
 
 // ── SUBTASKS ───────────────────────────────────────────────────────────
 const subtaskSchema = new Schema<any>(
@@ -190,6 +293,10 @@ const agentEscrowSchema = new Schema<any>(
     agentId: { type: String, required: true },
     amount: { type: Number, required: true },
     status: { type: String, enum: ESCROW_STATUSES, default: "LOCKED" },
+    // Links this escrow to the scoped credential that authorized it (§4).
+    // Null for callers that don't issue one (e.g. existing tests, the x402
+    // flow) - enforcement simply skips the credential gate when absent.
+    credentialId: { type: String, default: null },
   },
   { timestamps: true, versionKey: false },
 );
@@ -296,17 +403,20 @@ const eventSchema = new Schema<any>(
   {
     _id: idField,
     taskId: { type: String, default: null },
+    organizationId: { type: String, default: null },
     actor: { type: String, required: true },
     eventType: { type: String, required: true },
     payload: { type: String, required: true },
   },
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
 );
+eventSchema.index({ organizationId: 1, createdAt: 1 });
 
 const securityEventSchema = new Schema<any>(
   {
     _id: idField,
     taskId: { type: String, default: null },
+    organizationId: { type: String, default: null },
     agentId: { type: String, default: null },
     type: { type: String, required: true },
     reason: { type: String, required: true },
@@ -318,6 +428,7 @@ const securityEventSchema = new Schema<any>(
   },
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
 );
+securityEventSchema.index({ organizationId: 1, createdAt: 1 });
 
 const paymentIntentSchema = new Schema<any>(
   {
@@ -398,6 +509,10 @@ export const models = {
   User: model("User", userSchema),
   Wallet: model("Wallet", walletSchema),
   Agent: model("Agent", agentSchema),
+  AgentProvider: model("AgentProvider", agentProviderSchema),
+  OrganizationMember: model("OrganizationMember", organizationMemberSchema),
+  AuthorizationCredential: model("AuthorizationCredential", authorizationCredentialSchema),
+  AgentCapabilityStat: model("AgentCapabilityStat", agentCapabilityStatSchema),
   Task: model("Task", taskSchema),
   Subtask: model("Subtask", subtaskSchema),
   Bid: model("Bid", bidSchema),
@@ -481,4 +596,5 @@ export const uniqueFields: Partial<Record<ModelName, string[]>> = {
   PaymentIntent: ["idempotencyKey"],
   BlockchainTransaction: ["transactionId"],
   AlgorandLedgerTransaction: ["txId", "centralLedgerId"],
+  AgentProvider: ["ownerUserId"],
 };

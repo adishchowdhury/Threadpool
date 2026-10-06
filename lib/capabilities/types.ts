@@ -38,6 +38,35 @@ export interface DataPoint {
   sourceId: string | null;
 }
 
+// One line of an assumption ledger backing a derived/estimated financial
+// metric (e.g. "Average contract value" -> "$1,200").
+export interface MetricAssumption {
+  label: string;
+  value: string;
+}
+
+// A single financial metric produced by the financial_analysis capability.
+// "observed" = the number is written in a cited source; "estimate" = Kraven
+// derived it from stated assumptions/inputs; a metric is never allowed to
+// claim "observed" without a verified sourceId (see financialAnalysis.ts).
+export interface FinancialMetric {
+  name: string;
+  value: string; // formatted for display, e.g. "$92B" or "6.5x"
+  basis: "observed" | "estimate";
+  confidence: "high" | "medium" | "low";
+  // For "observed": the source backing it. For "estimate": the inputs/assumptions used to derive it.
+  sourceId: string | null;
+  assumptions: MetricAssumption[];
+  // Free-text note, e.g. a range when sources disagree ("$80B-$120B across 3 sources").
+  note: string | null;
+}
+
+export interface Contradiction {
+  topic: string;
+  claims: Array<{ value: string; sourceId: string | null }>;
+  resolution: string;
+}
+
 export interface ReviewIssue {
   severity: "critical" | "major" | "minor";
   // Which workflow step must fix it (by plan sequence number), or null when
@@ -47,7 +76,7 @@ export interface ReviewIssue {
   description: string;
   fix: string;
   // Set by Kraven's deterministic checks (not the reviewer model).
-  origin?: "reviewer" | "citation_check" | "numeric_check";
+  origin?: "reviewer" | "citation_check" | "numeric_check" | "structure_check";
 }
 
 export interface IntegrationReview {
@@ -69,6 +98,8 @@ export interface SubtaskArtifacts {
   analysis?: AnalysisResult[];
   ungroundedNumbers?: string[];
   review?: IntegrationReview;
+  financialMetrics?: FinancialMetric[];
+  contradictions?: Contradiction[];
   // Deterministic numeric check of the report the review looked at, and that
   // report's hash, so the final report can reuse it when unchanged.
   numericCheck?: NumericCheckReport;

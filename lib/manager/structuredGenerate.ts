@@ -33,12 +33,21 @@ export async function generateStructuredWithUsage<T extends z.ZodType>(params: {
   // nothing, or run out mid-JSON; retry once asking for brief reasoning
   // (see lib/capabilities/llm.ts). Schema violations are not retried here -
   // callers have their own fallbacks for those.
+  // The economy tier serves sarvam-105b-conversations, which hard-caps
+  // output at SARVAM_MAX_OUTPUT_TOKENS (8192) regardless of what's
+  // requested - asking it for SARVAM_LARGE_OUTPUT_TOKENS doesn't degrade
+  // gracefully, it's a 400 ("max_tokens exceeds the maximum output length").
+  // Only sarvam-105b (standard/premium) actually supports the larger budget.
+  // No tier given resolves to "economy" too (sarvamModel()'s own default).
+  const resolvedTier = params.tier ?? "economy";
+  const maxOutputTokens = params.largeOutput && resolvedTier !== "economy" ? SARVAM_LARGE_OUTPUT_TOKENS : SARVAM_MAX_OUTPUT_TOKENS;
+
   for (let attempt = 0; attempt < 2; attempt++) {
     const res = await generateText({
       model: sarvamModel(params.tier),
       // Judgments (QA, planning) should be repeatable, not sampled.
       temperature: 0,
-      maxOutputTokens: params.largeOutput ? SARVAM_LARGE_OUTPUT_TOKENS : SARVAM_MAX_OUTPUT_TOKENS,
+      maxOutputTokens,
       abortSignal: AbortSignal.timeout(SARVAM_CALL_TIMEOUT_MS),
       ...(params.system ? { system: params.system } : {}),
       prompt: attempt === 0 ? basePrompt : basePrompt + BRIEF_REASONING_NOTE,

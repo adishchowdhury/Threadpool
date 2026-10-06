@@ -43,7 +43,7 @@ export async function rankCandidates(params: {
       scoreBreakdown: s.scoreBreakdown,
       totalScore: s.totalScore,
       explanation:
-        `Selected ${s.agent.name} because: ` +
+        `Selected ${s.agent.name}${s.agent.isExternal ? ` (external · ${s.agent.providerName ?? "independent provider"})` : ""} because: ` +
         `Capability match: ${s.scoreBreakdown.capabilityMatch.toFixed(0)}%, ` +
         `Quality: ${s.scoreBreakdown.quality.toFixed(0)}, ` +
         `Success rate: ${s.scoreBreakdown.successRate.toFixed(0)}%, ` +

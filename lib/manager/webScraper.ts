@@ -9,15 +9,33 @@
 // is configured - it renders pages and bypasses bot blocks that a plain
 // fetch() hits on many sites. Without that env var it falls straight back
 // to a direct fetch, so the module works with zero external credentials
-// too. Search (finding which URLs to fetch) always goes through
-// DuckDuckGo's no-JS HTML result page - no official API, no key required.
+// too. Search (finding which URLs to fetch) is entirely keyless by default:
+// a rotation of public SearXNG metasearch instances, with DuckDuckGo's no-JS
+// HTML result page as the final fallback. No official API, no key, no
+// signup required for either.
 //
 // Every failure degrades to "no live data" rather than throwing, per the
 // project's fallback-transparency rule; callers must label the source
 // honestly and never claim scraped data when none was fetched.
 
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+// A small pool of realistic desktop User-Agents, picked per request. Sending
+// the same UA on every call is itself a bot signal; DuckDuckGo's "anomaly"
+// challenge triggers faster against a single fixed UA hammering it.
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+  "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+];
+const randomUserAgent = () => USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+const BROWSER_HEADERS = { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9" };
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Small randomized pre-request pause: several subtasks issuing their web
+// passes back-to-back looks like a burst to a rate limiter even though no
+// single step is abusive. Spreading requests out a little is free and cuts
+// how often the keyless search backends trip their bot challenge.
+const jitterDelay = () => sleep(250 + Math.floor(Math.random() * 500));
 
 const SEARCH_TIMEOUT_MS = 6000;
 // Generous: a Bright Data fetch pays for both a fresh CDP session handshake
@@ -27,6 +45,17 @@ const BRIGHTDATA_CONNECT_TIMEOUT_MS = 10000;
 const MAX_EXCERPT_CHARS = 1500;
 const BRIGHTDATA_COOLDOWN_MS = 5 * 60_000;
 let brightDataCooldownUntil = 0;
+
+// Short-lived, per-process cache of search results keyed by normalized
+// query. Several subtasks in the same task (and across concurrent tasks in
+// the same server process) often issue near-identical queries within
+// minutes of each other; serving the cached answer instead of re-querying
+// is both free latency and fewer requests against a backend that rate-limits
+// by request volume. Not a correctness concern if stale - these are
+// best-effort "current facts" lookups, already labeled with fetchedAt.
+const SEARCH_CACHE_TTL_MS = 10 * 60_000;
+const searchCache = new Map<string, { at: number; results: WebSearchResult[] }>();
+const cacheKey = (q: string) => q.trim().toLowerCase().replace(/\s+/g, " ");
 
 export type WebSearchResult = { title: string; url: string; snippet: string };
 export type ScrapedPage = { url: string; title: string; excerpt: string };
@@ -46,7 +75,7 @@ async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestIn
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal, headers: { "User-Agent": USER_AGENT, ...init?.headers } });
+    return await fetch(url, { ...init, signal: controller.signal, headers: { "User-Agent": randomUserAgent(), ...BROWSER_HEADERS, ...init?.headers } });
   } finally {
     clearTimeout(timer);
   }
@@ -165,15 +194,31 @@ function extractDuckDuckGoUrl(rawHref: string): string | null {
 }
 
 // ── search providers ───────────────────────────────────────────────────
-// Official search APIs are used when a key is configured; DuckDuckGo's
-// no-JS HTML page is the keyless last resort. It bot-blocks automated
+// Official API keys (Brave/Tavily) are used when configured; both are
+// optional. The default, zero-signup path is two fully keyless engines:
+// a rotation of public SearXNG metasearch instances, then DuckDuckGo's
+// no-JS HTML page as the last resort. DuckDuckGo bot-blocks automated
 // traffic (HTTP 202 "anomaly" challenge) after a burst of queries, so it is
-// not a production backend - and when it blocks, we say so instead of
-// reporting "no results".
+// tried last and paced/retried rather than hammered - and when every
+// provider blocks, we say so instead of reporting "no results".
 
 export class SearchBlockedError extends Error {}
 
 type SearchProvider = { name: string; configured: () => boolean; search: (q: string, n: number) => Promise<WebSearchResult[]> };
+
+// Public SearXNG instances (open-source metasearch aggregating several
+// underlying engines) - free, no key, no account. Overridable via
+// SEARXNG_INSTANCES (comma-separated base URLs) for anyone running or
+// trusting a specific instance; otherwise a small built-in rotation is
+// tried in order, with a random starting point so repeated runs don't all
+// hammer the same instance first.
+const DEFAULT_SEARXNG_INSTANCES = ["https://searx.be", "https://priv.au", "https://search.inetol.net"];
+function searxngInstances(): string[] {
+  const configured = (process.env.SEARXNG_INSTANCES ?? "").split(",").map((s) => s.trim().replace(/\/$/, "")).filter(Boolean);
+  const list = configured.length > 0 ? configured : DEFAULT_SEARXNG_INSTANCES;
+  const offset = Math.floor(Math.random() * list.length);
+  return [...list.slice(offset), ...list.slice(0, offset)];
+}
 
 const braveProvider: SearchProvider = {
   name: "brave",
@@ -211,9 +256,47 @@ const tavilyProvider: SearchProvider = {
   },
 };
 
+// Free, keyless metasearch: tries each public instance in turn (JSON API
+// first - most instances that enable it respond fast and structured), moves
+// on to the next instance on any failure (down, disabled JSON, rate
+// limited). Only throws once every instance has failed.
+const searxngProvider: SearchProvider = {
+  name: "searxng",
+  configured: () => true,
+  async search(query, maxResults) {
+    const errors: string[] = [];
+    for (const instance of searxngInstances()) {
+      try {
+        const res = await fetchWithTimeout(
+          `${instance}/search?q=${encodeURIComponent(query)}&format=json&language=en`,
+          SEARCH_TIMEOUT_MS,
+          { headers: { Accept: "application/json" } },
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!/json/i.test(contentType)) throw new Error("instance does not serve JSON results");
+        const body = (await res.json()) as { results?: Array<{ title?: string; url?: string; content?: string }> };
+        const results = (body.results ?? [])
+          .filter((r) => r.url)
+          .slice(0, maxResults)
+          .map((r) => ({ title: stripHtmlToText(r.title ?? r.url!), url: r.url!, snippet: stripHtmlToText(r.content ?? "") }));
+        if (results.length > 0) return results;
+        throw new Error("no results");
+      } catch (err) {
+        errors.push(`${instance}: ${err instanceof Error ? err.message : "failed"}`);
+      }
+    }
+    throw new Error(errors.join("; ") || "no SearXNG instance responded");
+  },
+};
+
 const duckDuckGoProvider: SearchProvider = { name: "duckduckgo_html", configured: () => true, search: searchDuckDuckGo };
 
-const SEARCH_PROVIDERS: SearchProvider[] = [braveProvider, tavilyProvider, duckDuckGoProvider];
+// Keyless engines last, in increasing order of block-risk: official APIs
+// (if keys are set) first, then SearXNG (aggregated, spread across several
+// underlying engines so no single one sees the full query volume), then
+// DuckDuckGo HTML scraping as the final fallback.
+const SEARCH_PROVIDERS: SearchProvider[] = [braveProvider, tavilyProvider, searxngProvider, duckDuckGoProvider];
 
 export function configuredSearchProviders(): string[] {
   return SEARCH_PROVIDERS.filter((p) => p.configured()).map((p) => p.name);
@@ -221,25 +304,40 @@ export function configuredSearchProviders(): string[] {
 
 // Tries each configured provider in order; the first that answers wins
 // (an empty answer is a real answer). Throws only if every provider failed,
-// with every provider's reason.
+// with every provider's reason. Identical queries within SEARCH_CACHE_TTL_MS
+// are served from cache instead of re-hitting any backend.
 export async function searchWeb(query: string, maxResults = 4): Promise<WebSearchResult[]> {
+  const key = cacheKey(query);
+  const cached = searchCache.get(key);
+  if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) return cached.results;
+
   const errors: string[] = [];
   for (const p of SEARCH_PROVIDERS.filter((x) => x.configured())) {
     try {
-      return await p.search(query, maxResults);
+      if (p.name === "searxng" || p.name === "duckduckgo_html") await jitterDelay();
+      const results = await p.search(query, maxResults);
+      searchCache.set(key, { at: Date.now(), results });
+      return results;
     } catch (err) {
       errors.push(`${p.name}: ${err instanceof Error ? err.message : "failed"}`);
     }
   }
   const blocked = errors.some((e) => e.startsWith("duckduckgo_html") && /bot challenge/.test(e));
-  const message = errors.join("; ") + (blocked ? " - configure BRAVE_SEARCH_API_KEY or TAVILY_API_KEY for reliable search" : "");
+  const message = errors.join("; ") + (blocked ? " - all keyless engines are currently unavailable; set SEARXNG_INSTANCES to a trusted instance, or BRAVE_SEARCH_API_KEY/TAVILY_API_KEY for a free-tier API key" : "");
   throw blocked ? new SearchBlockedError(message) : new Error(message);
 }
 
 // Scrapes DuckDuckGo's no-JS HTML result page. No official API, no key
-// required - this is the same page a browser gets with JS disabled.
+// required - this is the same page a browser gets with JS disabled. One
+// retry with backoff on the bot-challenge page before giving up: the
+// challenge is often a transient rate-limit, not a hard block.
 async function searchDuckDuckGo(query: string, maxResults = 4): Promise<WebSearchResult[]> {
-  const { html } = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, SEARCH_TIMEOUT_MS, false);
+  let html = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await sleep(1500 + Math.floor(Math.random() * 1000));
+    ({ html } = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, SEARCH_TIMEOUT_MS, false));
+    if (!(/anomaly/i.test(html) && !/result__a/.test(html))) break;
+  }
   if (/anomaly/i.test(html) && !/result__a/.test(html)) {
     throw new Error("blocked automated queries with a bot challenge (rate-limited)");
   }

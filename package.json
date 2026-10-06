@@ -10,7 +10,10 @@
     "lint": "eslint",
     "db:seed": "tsx scripts/db-seed.ts",
     "db:reset": "tsx scripts/db-reset.ts",
+    "db:fix-indexes": "tsx scripts/db-fix-indexes.ts",
     "agents:calibrate": "tsx --env-file=.env scripts/calibrate-agents.ts",
+    "smoke:external-agent": "tsx --env-file=.env scripts/smoke-external-agent.ts",
+    "demo:full-loop": "tsx --env-file=.env scripts/demo-full-loop.ts",
     "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {

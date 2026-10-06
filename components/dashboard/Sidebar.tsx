@@ -2,12 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { useTheme } from "next-themes";
 import {
+  FileText,
+  Home,
+  Info,
   LogIn,
   LogOut,
+  Mail,
   Moon,
   MoreHorizontal,
   PanelLeftClose,
@@ -15,10 +20,13 @@ import {
   PinOff,
   Search,
   Share2,
+  ShieldCheck,
   SquarePen,
   Store,
   Sun,
+  Tag,
   Trash2,
+  User,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,12 +49,23 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LoginDialog } from "@/components/auth/login-dialog";
-import { auth, firebaseConfigured } from "@/lib/firebase";
+import { firebaseConfigured, auth } from "@/lib/firebase";
+import { authHeader } from "@/lib/auth/clientAuth";
 import { useAuthUser } from "@/lib/use-auth-user";
 import type { TaskRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const ACTIVE = new Set(["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA"]);
+
+// Mirrors the marketing site's SiteNavLinks so the console can link back out
+// to the same pages, without pulling in the marketing-only component.
+const SITE_LINKS = [
+  { label: "About", href: "/about", icon: Info },
+  { label: "Pricing", href: "/pricing", icon: Tag },
+  { label: "Privacy", href: "/privacy", icon: ShieldCheck },
+  { label: "Terms", href: "/terms", icon: FileText },
+  { label: "Contact", href: "/contact", icon: Mail },
+] as const;
 
 function groupByRecency(tasks: TaskRecord[]): Array<{ label: string; tasks: TaskRecord[] }> {
   const startOfToday = new Date();
@@ -203,15 +222,33 @@ function AccountMenu() {
             <DropdownMenuSeparator />
           </>
         )}
+        <DropdownMenuItem onClick={() => router.push("/profile")}>
+          <User className="size-3.5" />
+          View profile
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme(dark ? "light" : "dark")}>
           {dark ? <Sun className="size-3.5" /> : <Moon className="size-3.5" />}
           {dark ? "Light theme" : "Dark theme"}
         </DropdownMenuItem>
-        {user && (
-          <DropdownMenuItem variant="destructive" onClick={handleLogout}>
-            <LogOut className="size-3.5" />
-            Log out
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => router.push("/")}>
+          <Home className="size-3.5" />
+          Home page
+        </DropdownMenuItem>
+        {SITE_LINKS.map((link) => (
+          <DropdownMenuItem key={link.href} onClick={() => router.push(link.href)}>
+            <link.icon className="size-3.5" />
+            {link.label}
           </DropdownMenuItem>
+        ))}
+        {user && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={handleLogout}>
+              <LogOut className="size-3.5" />
+              Log out
+            </DropdownMenuItem>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -221,6 +258,8 @@ function AccountMenu() {
 export function Sidebar({
   activeTaskId,
   refreshKey,
+  mode,
+  onModeChange,
   onSelect,
   onNewTask,
   onOpenAgents,
@@ -229,11 +268,16 @@ export function Sidebar({
   activeTaskId: string | null;
   // Changes whenever the history may have changed (new task, status change).
   refreshKey: string;
+  // "user" = normal task workspace. "org" = manage your own agents/org -
+  // a genuinely separate mode (§33), not mixed into this same nav.
+  mode: "user" | "org";
+  onModeChange: (mode: "user" | "org") => void;
   onSelect: (taskId: string) => void;
   onNewTask: () => void;
   onOpenAgents: () => void;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -243,7 +287,8 @@ export function Sidebar({
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/tasks")
+    authHeader()
+      .then((headers) => fetch("/api/tasks", { headers }))
       .then((res) => res.json())
       .then((data) => {
         if (!cancelled) setTasks(data.tasks ?? []);
@@ -313,10 +358,10 @@ export function Sidebar({
   return (
     <div className="flex h-full w-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between px-3 pb-1 pt-3">
-        <div className="flex items-center px-1">
+        <Link href="/" className="flex items-center px-1" title="Visit home page">
           {/* The logo asset is a dark wordmark; invert it on the dark theme. */}
           <Image src="/logo.png" alt="Kraven" width={72} height={24} priority className="h-6 w-auto dark:invert" />
-        </div>
+        </Link>
         <button
           type="button"
           onClick={onClose}
@@ -328,13 +373,60 @@ export function Sidebar({
         </button>
       </div>
 
-      <nav className="space-y-0.5 px-2 pt-2" aria-label="Main">
-        <NavButton icon={SquarePen} label="New task" onClick={onNewTask} />
-        <NavButton icon={Search} label="Search tasks" onClick={() => setSearching((s) => !s)} />
-        <NavButton icon={Store} label="Agents" onClick={onOpenAgents} />
-      </nav>
+      <div className="px-2 pt-2">
+        <div role="tablist" aria-label="Mode" className="flex gap-0.5 rounded-lg bg-sidebar-border/60 p-0.5">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "user"}
+            onClick={() => onModeChange("user")}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+              mode === "user" ? "bg-sidebar text-sidebar-foreground shadow-sm" : "text-muted-foreground hover:text-sidebar-foreground",
+            )}
+          >
+            Workforce
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "org"}
+            onClick={() => onModeChange("org")}
+            className={cn(
+              "flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+              mode === "org" ? "bg-sidebar text-sidebar-foreground shadow-sm" : "text-muted-foreground hover:text-sidebar-foreground",
+            )}
+          >
+            My Organization
+          </button>
+        </div>
+      </div>
 
-      {searching && (
+      {mode === "org" && (
+        <div className="mx-2 mt-3 rounded-lg border border-sidebar-border/60 bg-sidebar-accent/40 px-3 py-2.5">
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Register and manage your own agents here - they compete for real work in the marketplace.
+          </p>
+          <button
+            type="button"
+            onClick={() => onModeChange("user")}
+            className="mt-1.5 text-xs font-medium text-sidebar-foreground/80 underline underline-offset-2 hover:text-sidebar-foreground"
+          >
+            Switch back to Workforce
+          </button>
+        </div>
+      )}
+
+      {mode === "user" && (
+        <nav className="space-y-0.5 px-2 pt-2" aria-label="Main">
+          <NavButton icon={SquarePen} label="New task" onClick={onNewTask} />
+          <NavButton icon={Search} label="Search tasks" onClick={() => setSearching((s) => !s)} />
+          <NavButton icon={Store} label="Agents" onClick={onOpenAgents} />
+          <NavButton icon={Home} label="Home page" onClick={() => router.push("/")} />
+        </nav>
+      )}
+
+      {mode === "user" && searching && (
         <div className="animate-in fade-in slide-in-from-top-1 px-3 pt-2 duration-200 ease-out">
           <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5">
             <Search className="size-3.5 shrink-0 text-muted-foreground" />
@@ -356,13 +448,13 @@ export function Sidebar({
       )}
 
       <div className="mt-3 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {!loaded && <p className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</p>}
-        {loaded && groups.length === 0 && pinnedTasks.length === 0 && (
+        {mode === "user" && !loaded && <p className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</p>}
+        {mode === "user" && loaded && groups.length === 0 && pinnedTasks.length === 0 && (
           <p className="px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
             {query ? "No tasks match your search." : "Your tasks will appear here. Describe one to get started."}
           </p>
         )}
-        {pinnedTasks.length > 0 && (
+        {mode === "user" && pinnedTasks.length > 0 && (
           <section className="mb-3">
             <h3 className="px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground">Pinned</h3>
             <ul className="space-y-0.5">
@@ -380,7 +472,7 @@ export function Sidebar({
             </ul>
           </section>
         )}
-        {groups.map((group) => (
+        {mode === "user" && groups.map((group) => (
           <section key={group.label} className="mb-3">
             <h3 className="px-2.5 pb-1 pt-2 text-xs font-medium text-muted-foreground">{group.label}</h3>
             <ul className="space-y-0.5">

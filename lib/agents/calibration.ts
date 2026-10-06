@@ -99,9 +99,11 @@ async function calibrateOne(agent: { id: string; model: string | null }, capabil
     webGrounding: false,
     upstream: bench.upstream,
   });
-  // A fallback placeholder is not the agent's work - never score it.
-  if (!exec.source.startsWith("sarvam")) {
-    return { agentId: agent.id, capability, status: "skipped", reason: `worker did not run on Sarvam (${exec.source})` };
+  // A fallback placeholder (or a failed external call) is not the agent's
+  // real work - never score it. "external" = a genuine round trip to the
+  // provider's endpoint succeeded; that IS real work, score it.
+  if (!exec.source.startsWith("sarvam") && exec.source !== "external") {
+    return { agentId: agent.id, capability, status: "skipped", reason: `worker did not produce real output (${exec.source}): ${exec.source === "external_error" ? exec.output : ""}`.trim() };
   }
 
   const qa = await verifySubtaskOutput({
@@ -181,4 +183,49 @@ export async function calibrateAgents(options: { agentIds?: string[] } = {}): Pr
   for (const id of new Set(results.map((r) => r.agentId))) await refreshAgentStats(id);
 
   return results;
+}
+
+export interface ExternalCalibrationSummary {
+  runs: CalibrationRun[];
+  passed: boolean;
+  lifecycleStatus: "ACTIVE" | "FAILED_CALIBRATION";
+}
+
+// Calibrates an EXTERNAL agent against the same fixed, capability-specific
+// benchmarks as built-in agents, through the real outbound HTTP path
+// (worker.ts dispatches to executeExternalAgentSubtask for any agent with
+// isExternal=true, so calibrateOne above needs no external-specific code).
+// Gates the agent into routing: it only becomes ACTIVE once at least one
+// declared capability actually passes QA against real output from its
+// endpoint - a provider's own claims about quality are never trusted.
+export async function calibrateExternalAgent(agentId: string): Promise<ExternalCalibrationSummary> {
+  const agent = await db.agent.findUniqueOrThrow({ where: { id: agentId } });
+  if (!agent.isExternal) throw new Error(`agent ${agentId} is not an external agent`);
+
+  const declaredCapabilities = JSON.parse(agent.capabilities) as string[];
+  const runStart = new Date();
+  const runs: CalibrationRun[] = [];
+  for (const capability of declaredCapabilities) {
+    try {
+      runs.push(await calibrateOne({ id: agent.id, model: agent.model }, capability));
+    } catch (err) {
+      runs.push({ agentId, capability, status: "skipped", reason: err instanceof Error ? err.message : "unknown error" });
+    }
+  }
+
+  for (const r of runs) {
+    if (r.status !== "recorded") continue;
+    await db.agentCalibration.deleteMany({ where: { agentId, capability: r.capability, createdAt: { lt: runStart } } });
+  }
+
+  const passed = runs.some((r) => r.status === "recorded" && r.passed);
+  const lifecycleStatus = passed ? "ACTIVE" : "FAILED_CALIBRATION";
+
+  await db.agent.update({
+    where: { id: agentId },
+    data: { lifecycleStatus, status: passed ? "ACTIVE" : "INACTIVE" },
+  });
+  await refreshAgentStats(agentId);
+
+  return { runs, passed, lifecycleStatus };
 }

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db/client";
 import { writeLedgerPair } from "@/lib/economy/ledger";
 import { evaluateTransaction, isSevereViolation } from "@/lib/economy/circuitBreaker";
+import { enforceCredential, markCredentialSpent } from "@/lib/economy/credentials";
 import { managerWalletId, escrowWalletId } from "@/lib/economy/wallets";
 import { generateMockAlgorandAddress } from "@/lib/blockchain/algorand";
 import * as algo from "@/lib/blockchain/algorand";
@@ -142,6 +143,10 @@ export async function lockAgentEscrow(params: {
   agentId: string;
   amount: number;
   purpose: string;
+  // Scoped credential (§4) - a SECOND, independent gate alongside the
+  // Circuit Breaker below. Optional so existing callers (tests, x402) that
+  // never issue one are unaffected: the credential gate is simply skipped.
+  credentialId?: string | null;
 }) {
   return db.$transaction(async (db) => {
     // Sequential on purpose: MongoDB sessions don't support parallel
@@ -172,6 +177,13 @@ export async function lockAgentEscrow(params: {
       return { blocked: true as const, reason: decision.reason, revoked };
     }
 
+    if (params.credentialId) {
+      const credDecision = await enforceCredential(db, { credentialId: params.credentialId, operation: "LOCK_ESCROW", amount: params.amount });
+      if (!credDecision.allowed) {
+        return { blocked: true as const, reason: credDecision.reason, revoked: false };
+      }
+    }
+
     await db.wallet.update({ where: { id: managerWalletId() }, data: { balance: { decrement: params.amount } } });
     await db.wallet.update({ where: { id: escrowWalletId() }, data: { balance: { increment: params.amount } } });
     await db.task.update({ where: { id: params.taskId }, data: { remainingBudget: { decrement: params.amount } } });
@@ -189,6 +201,7 @@ export async function lockAgentEscrow(params: {
         agentId: params.agentId,
         amount: params.amount,
         status: "LOCKED",
+        credentialId: params.credentialId ?? null,
       },
     });
 
@@ -297,6 +310,19 @@ export async function releaseAgentEscrow(params: {
       return { blocked: true as const, reason: decision.reason, revoked };
     }
 
+    // Independent of the breaker above: the escrow's own scoped credential
+    // (§4) must separately authorize RELEASE_ESCROW up to requestedAmount.
+    if (agentEscrow.credentialId) {
+      const credDecision = await enforceCredential(db, {
+        credentialId: agentEscrow.credentialId,
+        operation: "RELEASE_ESCROW",
+        amount: params.requestedAmount,
+      });
+      if (!credDecision.allowed) {
+        return { blocked: true as const, reason: credDecision.reason, revoked: false };
+      }
+    }
+
     // Atomic claim before any balance moves - an escrow can be settled once
     // (released OR refunded), even when two operations race without
     // transaction isolation. See refundAgentEscrow.
@@ -326,6 +352,10 @@ export async function releaseAgentEscrow(params: {
       type: "PAYOUT",
       status: "APPROVED",
     });
+
+    if (agentEscrow.credentialId) {
+      await markCredentialSpent(db, agentEscrow.credentialId, params.requestedAmount);
+    }
 
     await emitEvent(db, {
       taskId: task.id,

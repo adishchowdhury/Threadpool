@@ -182,7 +182,17 @@ export function MarketplacePanel({
                               </span>
                             )}
                           </div>
-                          {agent.role && <div className="mt-1 max-w-64 truncate text-xs text-panel-muted">{agent.role}</div>}
+                          {agent.isExternal ? (
+                            <div className="mt-1 max-w-64 truncate text-xs text-panel-muted">
+                              <Badge variant="outline" className="h-4.5 rounded-sm border-panel-border bg-transparent px-1 text-[10px] font-normal">
+                                External
+                              </Badge>{" "}
+                              · {agent.providerName ?? "Unknown provider"}
+                              {agent.lifecycleStatus && agent.lifecycleStatus !== "ACTIVE" && ` · ${agent.lifecycleStatus.replace(/_/g, " ").toLowerCase()}`}
+                            </div>
+                          ) : (
+                            agent.role && <div className="mt-1 max-w-64 truncate text-xs text-panel-muted">{agent.role}</div>
+                          )}
                         </div>
                       </div>
                     </TableCell>

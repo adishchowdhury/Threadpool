@@ -20,6 +20,8 @@ export const CAPABILITY_IDS = [
   "report_generation",
   "quality_verification",
   "review",
+  "risk_assessment",
+  "regulatory_compliance",
 ] as const;
 
 export type CapabilityId = (typeof CAPABILITY_IDS)[number];
@@ -79,7 +81,7 @@ export const CAPABILITY_CATALOG: Record<CapabilityId, CapabilitySpec> = {
     id: "financial_analysis",
     label: "Financial analysis",
     stage: "analyze",
-    plannerGuidance: "Financial metrics, unit economics, valuation views and investment cases.",
+    plannerGuidance: "Financial metrics, unit economics, valuation views and investment cases. Every metric is labeled observed (from a cited source) or estimate (with its assumption ledger) and given a deterministic confidence level - never a single invented precise figure.",
     tools: ["web_search", "upstream_lookup", "calculate"],
     webGrounded: true,
     budgetPriority: 6,
@@ -147,6 +149,26 @@ export const CAPABILITY_CATALOG: Record<CapabilityId, CapabilitySpec> = {
     tools: ["upstream_lookup"],
     webGrounded: false,
     budgetPriority: 2,
+  },
+  risk_assessment: {
+    id: "risk_assessment",
+    label: "Risk assessment",
+    stage: "analyze",
+    plannerGuidance:
+      "Identify and rate the market, execution, financial and regulatory risks to the decision (likelihood, impact, mitigation). Use when the task asks about risk, downside, what could go wrong, or is otherwise a decision/investment case that needs an explicit risk section grounded in evidence rather than boilerplate caveats.",
+    tools: ["web_search", "upstream_lookup"],
+    webGrounded: true,
+    budgetPriority: 5,
+  },
+  regulatory_compliance: {
+    id: "regulatory_compliance",
+    label: "Regulatory & compliance",
+    stage: "analyze",
+    plannerGuidance:
+      "Identify applicable regulations, licensing requirements and compliance obligations (e.g. fintech/financial-services rules, data protection, sector-specific licensing) and their impact on the opportunity. Use when the task involves a regulated industry, mentions compliance/licensing, or names jurisdictions with regulatory exposure.",
+    tools: ["web_search", "upstream_lookup"],
+    webGrounded: true,
+    budgetPriority: 4,
   },
 };
 

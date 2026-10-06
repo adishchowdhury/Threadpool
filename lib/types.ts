@@ -47,6 +47,10 @@ export interface AgentRecord {
   provider: string;
   model: string | null;
   endpoint: string | null;
+  isExternal: boolean;
+  providerId: string | null;
+  providerName: string | null;
+  lifecycleStatus: string | null;
 }
 
 export interface SecurityEventRecord {
