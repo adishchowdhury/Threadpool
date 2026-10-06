@@ -6,8 +6,9 @@ export const dynamic = "force-dynamic";
 // in production the browser's EventSource got cut and reconnected every few
 // seconds - the repeated ERR_NETWORK_IO_SUSPENDED/ERR_INTERNET_DISCONNECTED
 // failures against /api/events (and /api/tasks/:id while mid-reconnect) seen
-// in the console. Match the budget given to the task invocation itself.
-export const maxDuration = 800;
+// in the console. 300s is the ceiling on Vercel's Hobby plan; bump this (and
+// the task invocation's budget below) if the plan is upgraded.
+export const maxDuration = 300;
 
 // SSE stream - the frontend's single source of truth for live state. It
 // never guesses; it renders purely off events emitted here.

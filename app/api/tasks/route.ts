@@ -10,9 +10,10 @@ import { checkTaskSanity } from "@/lib/manager/sanityCheck";
 // this invocation instead of racing the platform freezing it post-response,
 // so the invocation needs to actually be allowed to live that long. A full
 // workflow (several subtasks, each with retries/reassignments and LLM/web
-// calls) can take minutes; 800s is Vercel's ceiling for a Fluid Compute
-// function. Bump the Vercel plan/config if a real workflow needs longer.
-export const maxDuration = 800;
+// calls) can take minutes; 300s is Vercel's ceiling on the Hobby plan (800s
+// is only available on Pro+ with Fluid Compute). Bump this if the plan is
+// upgraded and a real workflow needs longer.
+export const maxDuration = 300;
 
 const createTaskSchema = z.object({
   prompt: z.string().min(3).max(2000),
