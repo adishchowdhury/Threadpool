@@ -37,6 +37,42 @@ export function MarkdownView({ content, className }: { content: string; classNam
   let listType: "ul" | "ol" | null = null;
   let paragraph: string[] = [];
   let blockIndex = 0;
+  let tableRows: string[] = [];
+
+  function flushTable() {
+    if (tableRows.length === 0) return;
+    const parse = (row: string) => row.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+    const rows = tableRows.filter((r) => !/^[\s|:-]+$/.test(r)).map(parse);
+    tableRows = [];
+    if (rows.length === 0) return;
+    const [head, ...body] = rows;
+    blocks.push(
+      <div key={`table-${blockIndex++}`} className="mb-3 overflow-x-auto rounded-md border border-panel-border last:mb-0">
+        <table className="w-full border-collapse text-left text-[0.85em]">
+          <thead className="bg-panel-elevated">
+            <tr>
+              {head.map((cell, i) => (
+                <th key={i} className="border-b border-panel-border px-2.5 py-1.5 font-semibold">
+                  {renderInline(cell, `th-${blockIndex}-${i}`)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {body.map((row, r) => (
+              <tr key={r} className="border-b border-panel-border last:border-0">
+                {row.map((cell, i) => (
+                  <td key={i} className="px-2.5 py-1.5 align-top">
+                    {renderInline(cell, `td-${blockIndex}-${r}-${i}`)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>,
+    );
+  }
 
   function flushParagraph() {
     if (paragraph.length) {
@@ -78,6 +114,14 @@ export function MarkdownView({ content, className }: { content: string; classNam
   for (const rawLine of lines) {
     const line = rawLine.trimEnd();
     const trimmed = line.trim();
+
+    if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 1) {
+      flushParagraph();
+      flushList();
+      tableRows.push(trimmed);
+      continue;
+    }
+    flushTable();
 
     const headingMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed);
     const olMatch = /^(\d+)[.)]\s+(.*)$/.exec(trimmed);
@@ -148,6 +192,7 @@ export function MarkdownView({ content, className }: { content: string; classNam
   }
   flushParagraph();
   flushList();
+  flushTable();
 
   return <div className={className}>{blocks}</div>;
 }

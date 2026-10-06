@@ -1,37 +1,67 @@
 import { generateText } from "ai";
 import { z } from "zod";
-import { geminiModel } from "@/lib/manager/gemini";
+import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_LARGE_OUTPUT_TOKENS, type SarvamModelTier } from "@/lib/manager/sarvam";
+import { BRIEF_REASONING_NOTE } from "@/lib/capabilities/llm";
 
-// Gemma models (unlike Gemini) don't support the Generative Language API's
-// native responseSchema/JSON mode, so `ai`'s generateObject always falls
-// back to prompt-based JSON — and Gemma reliably wraps that JSON in a
-// closing ``` fence, which breaks strict parsing. Ask for raw JSON directly
-// via generateText, strip any fence, then validate through the same Zod
+// Sarvam reasoning models may emit <think> blocks and fenced JSON, so ask for
+// raw JSON directly via generateText, strip any fence, then validate through the same Zod
 // schema the rest of the app trusts for model output.
 //
 // The prompt MUST spell out the literal expected JSON shape: earlier this
 // only described the task in prose (no field names), so the model
 // reasonably invented its own key names (e.g. "task"/"capability" instead
 // of "type"/"requiredCapability"), Zod validation failed on every call, and
-// every caller silently fell back to its local heuristic — invisibly,
+// every caller silently fell back to its local heuristic - invisibly,
 // since callers only catch-and-fallback with no logging. Embedding the
 // real schema keeps this in sync with schemas.ts automatically.
-export async function generateStructured<T extends z.ZodType>(params: {
+export async function generateStructuredWithUsage<T extends z.ZodType>(params: {
   schema: T;
   prompt: string;
-}): Promise<z.infer<T>> {
+  // Worker runtimes run structured steps on the hired agent's own tier and
+  // persona; Manager judgments (planning, QA) use the default.
+  tier?: SarvamModelTier;
+  system?: string | null;
+  // For big structured deliverables (see SARVAM_LARGE_OUTPUT_TOKENS).
+  largeOutput?: boolean;
+}): Promise<{ object: z.infer<T>; usage: { inputTokens: number; outputTokens: number } }> {
   const jsonSchema = z.toJSONSchema(params.schema);
+  const basePrompt = `${params.prompt}\n\nRespond with ONLY a raw JSON object matching exactly this JSON Schema - the same field names, nesting, and types, no extra or missing fields, no markdown code fences, no commentary:\n\n${JSON.stringify(jsonSchema)}`;
 
-  const { text } = await generateText({
-    model: geminiModel(),
-    prompt: `${params.prompt}\n\nRespond with ONLY a raw JSON object matching exactly this JSON Schema — the same field names, nesting, and types, no extra or missing fields, no markdown code fences, no commentary:\n\n${JSON.stringify(jsonSchema)}`,
-  });
+  const usage = { inputTokens: 0, outputTokens: 0 };
+  let lastError: unknown;
+  // Reasoning tiers can exhaust the output budget thinking and return
+  // nothing, or run out mid-JSON; retry once asking for brief reasoning
+  // (see lib/capabilities/llm.ts). Schema violations are not retried here -
+  // callers have their own fallbacks for those.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await generateText({
+      model: sarvamModel(params.tier),
+      // Judgments (QA, planning) should be repeatable, not sampled.
+      temperature: 0,
+      maxOutputTokens: params.largeOutput ? SARVAM_LARGE_OUTPUT_TOKENS : SARVAM_MAX_OUTPUT_TOKENS,
+      ...(params.system ? { system: params.system } : {}),
+      prompt: attempt === 0 ? basePrompt : basePrompt + BRIEF_REASONING_NOTE,
+    });
+    usage.inputTokens += res.usage.inputTokens ?? 0;
+    usage.outputTokens += res.usage.outputTokens ?? 0;
+    const cleaned = res.text
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    let json: unknown;
+    try {
+      json = JSON.parse(cleaned);
+    } catch (err) {
+      lastError = err; // empty or truncated output
+      continue;
+    }
+    return { object: params.schema.parse(json), usage };
+  }
+  throw lastError instanceof Error ? lastError : new Error("structured generation returned no JSON");
+}
 
-  const cleaned = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
-
-  return params.schema.parse(JSON.parse(cleaned));
+export async function generateStructured<T extends z.ZodType>(params: { schema: T; prompt: string }): Promise<z.infer<T>> {
+  return (await generateStructuredWithUsage(params)).object;
 }

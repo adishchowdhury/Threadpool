@@ -1,16 +1,16 @@
 // Web scraper used to ground research-type worker outputs in current data.
-// Gemini's training data has a cutoff and can be stale for fast-moving
+// Sarvam's training data has a cutoff and can be stale for fast-moving
 // facts (funding rounds, pricing, market sizing, recent news); this module
 // fetches and cleans a handful of live web pages so the worker prompt can
 // cite something newer than the model's weights.
 //
 // Page fetches route through Bright Data's Scraping Browser (a remote,
 // anti-bot-hardened Chromium reached over CDP) when BRIGHTDATA_BROWSER_WS
-// is configured — it renders pages and bypasses bot blocks that a plain
+// is configured - it renders pages and bypasses bot blocks that a plain
 // fetch() hits on many sites. Without that env var it falls straight back
 // to a direct fetch, so the module works with zero external credentials
 // too. Search (finding which URLs to fetch) always goes through
-// DuckDuckGo's no-JS HTML result page — no official API, no key required.
+// DuckDuckGo's no-JS HTML result page - no official API, no key required.
 //
 // Every failure degrades to "no live data" rather than throwing, per the
 // project's fallback-transparency rule; callers must label the source
@@ -25,6 +25,8 @@ const SEARCH_TIMEOUT_MS = 6000;
 const PAGE_TIMEOUT_MS = 15000;
 const BRIGHTDATA_CONNECT_TIMEOUT_MS = 10000;
 const MAX_EXCERPT_CHARS = 1500;
+const BRIGHTDATA_COOLDOWN_MS = 5 * 60_000;
+let brightDataCooldownUntil = 0;
 
 export type WebSearchResult = { title: string; url: string; snippet: string };
 export type ScrapedPage = { url: string; title: string; excerpt: string };
@@ -51,7 +53,7 @@ async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestIn
 }
 
 // Playwright's own `timeout` options are a soft ceiling over an unreliable
-// remote proxy — a hung TLS/WS handshake to Bright Data has been observed
+// remote proxy - a hung TLS/WS handshake to Bright Data has been observed
 // to blow well past the configured connect + navigation timeouts (minutes,
 // not seconds). This is a hard backstop so one flaky Bright Data session
 // can never stall a worker subtask indefinitely; the abandoned connect/
@@ -72,7 +74,7 @@ function withHardDeadline<T>(promise: Promise<T>, ms: number, label: string): Pr
 // Connects fresh per call rather than reusing one session: Bright Data
 // caps how many distinct domains a single Scraping Browser session may
 // navigate to (this account trips "navigate_domains_limit" after just
-// one), so a shared session breaks as soon as a second domain shows up —
+// one), so a shared session breaks as soon as a second domain shows up -
 // which is the normal case here, since gatherWebContext scrapes several
 // different sites per query.
 async function fetchViaBrightDataBrowser(url: string, timeoutMs: number): Promise<string> {
@@ -95,7 +97,7 @@ async function fetchViaBrightDataBrowser(url: string, timeoutMs: number): Promis
 // configured (handles anti-bot pages a plain fetch gets blocked on) and
 // falling back to a direct fetch otherwise or on Bright Data failure.
 // `viaBrightData` lets callers opt out for endpoints that don't need
-// anti-bot handling — DuckDuckGo's plain HTML results page, notably,
+// anti-bot handling - DuckDuckGo's plain HTML results page, notably,
 // where a direct fetch is both reliable and much faster than paying for
 // a fresh Scraping Browser session.
 async function fetchHtml(
@@ -103,15 +105,25 @@ async function fetchHtml(
   timeoutMs: number,
   viaBrightData = true,
 ): Promise<{ html: string; via: "brightdata" | "direct" }> {
-  if (viaBrightData && isBrightDataConfigured()) {
+  if (viaBrightData && isBrightDataConfigured() && Date.now() >= brightDataCooldownUntil) {
     try {
       return { html: await fetchViaBrightDataBrowser(url, timeoutMs), via: "brightdata" };
     } catch (err) {
-      console.error(`[WebScraper] Bright Data fetch failed for ${url}, falling back to direct fetch:`, err);
+      // Playwright errors embed the CDP endpoint, which carries the Bright
+      // Data zone credentials - never log it unmasked.
+      const message = (err instanceof Error ? err.message : String(err)).replace(/\/\/[^/\s@]+@/g, "//***@");
+      console.error(`[WebScraper] Bright Data fetch failed for ${url}, falling back to direct fetch: ${message.split("\n")[0]}`);
+      // An unreachable proxy fails every page the same way; stop paying its
+      // connect timeout on each one for a while.
+      if (/connectOverCDP|ECONNREFUSED|ENOTFOUND|hard deadline/i.test(message)) brightDataCooldownUntil = Date.now() + BRIGHTDATA_COOLDOWN_MS;
     }
   }
   const res = await fetchWithTimeout(url, timeoutMs, { method: "GET" });
   if (!res.ok) throw new Error(`Fetch failed with status ${res.status}`);
+  // PDFs and other binaries would become garbage "text"; callers fall back
+  // to the search snippet instead.
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType && !/html|text|xml/i.test(contentType)) throw new Error(`unsupported content type ${contentType}`);
   return { html: await res.text(), via: "direct" };
 }
 
@@ -152,10 +164,85 @@ function extractDuckDuckGoUrl(rawHref: string): string | null {
   }
 }
 
-// Scrapes DuckDuckGo's no-JS HTML result page. No official API, no key
-// required — this is the same page a browser gets with JS disabled.
+// ── search providers ───────────────────────────────────────────────────
+// Official search APIs are used when a key is configured; DuckDuckGo's
+// no-JS HTML page is the keyless last resort. It bot-blocks automated
+// traffic (HTTP 202 "anomaly" challenge) after a burst of queries, so it is
+// not a production backend - and when it blocks, we say so instead of
+// reporting "no results".
+
+export class SearchBlockedError extends Error {}
+
+type SearchProvider = { name: string; configured: () => boolean; search: (q: string, n: number) => Promise<WebSearchResult[]> };
+
+const braveProvider: SearchProvider = {
+  name: "brave",
+  configured: () => Boolean(process.env.BRAVE_SEARCH_API_KEY),
+  async search(query, maxResults) {
+    const res = await fetchWithTimeout(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(maxResults, 20)}`,
+      SEARCH_TIMEOUT_MS,
+      { headers: { Accept: "application/json", "X-Subscription-Token": process.env.BRAVE_SEARCH_API_KEY! } },
+    );
+    if (!res.ok) throw new Error(`Brave Search HTTP ${res.status}`);
+    const body = (await res.json()) as { web?: { results?: Array<{ title?: string; url?: string; description?: string }> } };
+    return (body.web?.results ?? [])
+      .filter((r) => r.url)
+      .slice(0, maxResults)
+      .map((r) => ({ title: stripHtmlToText(r.title ?? ""), url: r.url!, snippet: stripHtmlToText(r.description ?? "") }));
+  },
+};
+
+const tavilyProvider: SearchProvider = {
+  name: "tavily",
+  configured: () => Boolean(process.env.TAVILY_API_KEY),
+  async search(query, maxResults) {
+    const res = await fetchWithTimeout("https://api.tavily.com/search", SEARCH_TIMEOUT_MS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.TAVILY_API_KEY}` },
+      body: JSON.stringify({ query, max_results: Math.min(maxResults, 10), search_depth: "basic" }),
+    });
+    if (!res.ok) throw new Error(`Tavily HTTP ${res.status}`);
+    const body = (await res.json()) as { results?: Array<{ title?: string; url?: string; content?: string }> };
+    return (body.results ?? [])
+      .filter((r) => r.url)
+      .slice(0, maxResults)
+      .map((r) => ({ title: r.title ?? r.url!, url: r.url!, snippet: (r.content ?? "").slice(0, 500) }));
+  },
+};
+
+const duckDuckGoProvider: SearchProvider = { name: "duckduckgo_html", configured: () => true, search: searchDuckDuckGo };
+
+const SEARCH_PROVIDERS: SearchProvider[] = [braveProvider, tavilyProvider, duckDuckGoProvider];
+
+export function configuredSearchProviders(): string[] {
+  return SEARCH_PROVIDERS.filter((p) => p.configured()).map((p) => p.name);
+}
+
+// Tries each configured provider in order; the first that answers wins
+// (an empty answer is a real answer). Throws only if every provider failed,
+// with every provider's reason.
 export async function searchWeb(query: string, maxResults = 4): Promise<WebSearchResult[]> {
+  const errors: string[] = [];
+  for (const p of SEARCH_PROVIDERS.filter((x) => x.configured())) {
+    try {
+      return await p.search(query, maxResults);
+    } catch (err) {
+      errors.push(`${p.name}: ${err instanceof Error ? err.message : "failed"}`);
+    }
+  }
+  const blocked = errors.some((e) => e.startsWith("duckduckgo_html") && /bot challenge/.test(e));
+  const message = errors.join("; ") + (blocked ? " - configure BRAVE_SEARCH_API_KEY or TAVILY_API_KEY for reliable search" : "");
+  throw blocked ? new SearchBlockedError(message) : new Error(message);
+}
+
+// Scrapes DuckDuckGo's no-JS HTML result page. No official API, no key
+// required - this is the same page a browser gets with JS disabled.
+async function searchDuckDuckGo(query: string, maxResults = 4): Promise<WebSearchResult[]> {
   const { html } = await fetchHtml(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, SEARCH_TIMEOUT_MS, false);
+  if (/anomaly/i.test(html) && !/result__a/.test(html)) {
+    throw new Error("blocked automated queries with a bot challenge (rate-limited)");
+  }
 
   const results: WebSearchResult[] = [];
   const resultBlockRe = /<div class="result results_links[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/g;
@@ -186,7 +273,7 @@ export async function scrapePage(url: string): Promise<ScrapedPage> {
 }
 
 // Top-level entry point for workers: search the live web for `query`,
-// scrape the top results, and return cleaned excerpts. Never throws —
+// scrape the top results, and return cleaned excerpts. Never throws -
 // on any failure (network, blocked, timeout) it returns
 // `available: false` with a human-readable reason so callers can label
 // the fallback honestly instead of silently pretending data was fetched.
@@ -230,10 +317,10 @@ export async function gatherWebContext(query: string, maxResults = 2): Promise<W
 // mistake a fallback for a real citation.
 export function formatWebContextForPrompt(ctx: WebContext): string {
   if (!ctx.available || ctx.results.length === 0) {
-    return `\n\n[LIVE WEB DATA UNAVAILABLE — ${ctx.reason ?? "no results"}. Rely on your training data and say so if precision on recent figures matters.]`;
+    return `\n\n[LIVE WEB DATA UNAVAILABLE - ${ctx.reason ?? "no results"}. Rely on your training data and say so if precision on recent figures matters.]`;
   }
   const sources = ctx.results
     .map((r, i) => `Source ${i + 1}: ${r.title} (${r.url})\n${r.excerpt}`)
     .join("\n\n");
-  return `\n\n[LIVE WEB DATA — fetched ${ctx.fetchedAt} for query "${ctx.query}". Use this to ground and update anything your training data may have stale, but still use your own judgment; cite sources by URL where you rely on them.]\n\n${sources}`;
+  return `\n\n[LIVE WEB DATA - fetched ${ctx.fetchedAt} for query "${ctx.query}". Use this to ground and update anything your training data may have stale, but still use your own judgment; cite sources by URL where you rely on them.]\n\n${sources}`;
 }

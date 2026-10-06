@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import { generateMockAlgorandAddress } from "@/lib/blockchain/algorand";
 
 // Two singleton system wallets:
@@ -10,10 +10,10 @@ import { generateMockAlgorandAddress } from "@/lib/blockchain/algorand";
 //             rows, not by separate wallets).
 const MANAGER_WALLET_ID = "wallet-manager";
 const ESCROW_WALLET_ID = "wallet-escrow-pool";
-const MANAGER_STARTING_BALANCE = 1_000_000; // hackathon sandbox — effectively unbounded top-up source
+const MANAGER_STARTING_BALANCE = 1_000_000; // hackathon sandbox - effectively unbounded top-up source
 
 export async function ensureSystemWallets() {
-  await prisma.wallet.upsert({
+  await db.wallet.upsert({
     where: { id: MANAGER_WALLET_ID },
     update: {},
     create: {
@@ -23,7 +23,7 @@ export async function ensureSystemWallets() {
       algorandAddress: generateMockAlgorandAddress(MANAGER_WALLET_ID),
     },
   });
-  await prisma.wallet.upsert({
+  await db.wallet.upsert({
     where: { id: ESCROW_WALLET_ID },
     update: {},
     create: {
@@ -44,9 +44,9 @@ export function escrowWalletId() {
 }
 
 export async function ensureAgentWallet(agentId: string) {
-  const existing = await prisma.wallet.findUnique({ where: { agentId } });
+  const existing = await db.wallet.findUnique({ where: { agentId } });
   if (existing) return existing;
-  return prisma.wallet.create({
+  return db.wallet.create({
     data: { type: "AGENT", agentId, balance: 0, algorandAddress: generateMockAlgorandAddress(`agent:${agentId}`) },
   });
 }

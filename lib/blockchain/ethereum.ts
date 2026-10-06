@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import { emitEvent } from "@/lib/events/emit";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 
 const SEPOLIA_RPC_URL = process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com";
 const ETHEREUM_NETWORK = process.env.ETHEREUM_NETWORK || "sepolia";
@@ -153,12 +153,12 @@ export async function sendEthereumPayment(
       txHash = `x402-0x${randomHex.substring(0, 16)}`;
     }
   } else {
-    console.log(`[Ethereum] MANAGER_PRIVATE_KEY not set — executing MOCK payment. Task: ${taskId}, Amount: ${amountWei} Wei to ${recipientAddress}`);
+    console.log(`[Ethereum] MANAGER_PRIVATE_KEY not set - executing MOCK payment. Task: ${taskId}, Amount: ${amountWei} Wei to ${recipientAddress}`);
     const randomHex = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     txHash = `x402-0x${randomHex.substring(0, 16)}`;
   }
 
-  await emitEvent(prisma, {
+  await emitEvent(db, {
     taskId,
     actor: requestingAgentId,
     eventType: "TRANSACTION_APPROVED",

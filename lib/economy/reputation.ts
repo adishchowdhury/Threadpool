@@ -1,8 +1,9 @@
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import { emitEvent } from "@/lib/events/emit";
+import { refreshAgentStats } from "@/lib/agents/stats";
 
-// Deterministic reputation recompute from an agent's full AgentPerformance
-// history. Called after every subtask completion (success or failure) —
+// Deterministic reputation recompute (lib/agents/stats.ts) from everything
+// observed about the agent - calibration runs plus job history. Called after every subtask completion (success or failure) -
 // never mutated directly by an LLM.
 export async function recordPerformanceAndUpdateReputation(params: {
   agentId: string;
@@ -17,7 +18,7 @@ export async function recordPerformanceAndUpdateReputation(params: {
   qaScore: number;
   success: boolean;
 }) {
-  await prisma.agentPerformance.create({
+  await db.agentPerformance.create({
     data: {
       agentId: params.agentId,
       taskId: params.taskId,
@@ -33,23 +34,11 @@ export async function recordPerformanceAndUpdateReputation(params: {
     },
   });
 
-  const history = await prisma.agentPerformance.findMany({ where: { agentId: params.agentId } });
-  const totalJobs = history.length;
-  const successCount = history.filter((h) => h.success).length;
-  const successRate = totalJobs > 0 ? successCount / totalJobs : 0;
-  const avgQuality = totalJobs > 0 ? history.reduce((s, h) => s + h.qaScore, 0) / totalJobs : 0;
-  const avgLatencyMs = totalJobs > 0 ? history.reduce((s, h) => s + h.actualLatencyMs, 0) / totalJobs : 0;
-  const avgCost = totalJobs > 0 ? history.reduce((s, h) => s + h.actualCost, 0) / totalJobs : 0;
+  const stats = await refreshAgentStats(params.agentId);
+  if (!stats) return;
+  const { reputation, successRate, avgQuality } = stats;
 
-  // Reputation: weighted blend of success rate and average quality, scaled 0-100.
-  const reputation = Math.round(successRate * 50 + (avgQuality / 100) * 50);
-
-  await prisma.agent.update({
-    where: { id: params.agentId },
-    data: { totalJobs, successCount, successRate, avgQuality, avgLatencyMs, avgCost, reputation },
-  });
-
-  await emitEvent(prisma, {
+  await emitEvent(db, {
     taskId: params.taskId,
     actor: "system",
     eventType: "REPUTATION_UPDATED",

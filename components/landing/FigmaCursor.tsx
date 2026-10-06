@@ -88,7 +88,7 @@ export function FigmaCursor() {
             filter: "drop-shadow(0 2px 8px rgba(0,0,0,0.6))",
           }}
         >
-          {/* Triangle arrow — Figma style */}
+          {/* Triangle arrow - Figma style */}
           <path
             d="M4 2L20 12L12 14L8 22L4 2Z"
             fill="white"

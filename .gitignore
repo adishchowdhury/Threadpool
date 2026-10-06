@@ -43,12 +43,9 @@ next-env.d.ts
 # database
 *.db
 *.db-journal
-prisma/dev.db
 
 # local verification artifacts
 scripts/.screenshots
-
-/app/generated/prisma
 
 # models
 models/*.gguf

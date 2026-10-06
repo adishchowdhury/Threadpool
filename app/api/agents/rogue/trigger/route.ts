@@ -1,23 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import { lockAgentEscrow, releaseAgentEscrow } from "@/lib/economy/escrow";
 import { emitEvent } from "@/lib/events/emit";
+import { CIRCUIT_BREAKER_DEMO_AGENT_ID, ensureCircuitBreakerDemoAgent } from "@/lib/agents/demoFixture";
 
 const triggerSchema = z.object({ taskId: z.string() });
 
 // Scripted, deterministic rogue-agent demo: a real (small, legitimate)
 // escrow lock followed by an oversized payout REQUEST that the Circuit
-// Breaker must block — through the exact same code path as every other
+// Breaker must block - through the exact same code path as every other
 // transaction, not a frontend simulation.
 export async function POST(request: Request) {
   const body = await request.json();
   const parsed = triggerSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const task = await prisma.task.findUnique({ where: { id: parsed.data.taskId } });
+  const task = await db.task.findUnique({ where: { id: parsed.data.taskId } });
   if (!task) return NextResponse.json({ error: "task not found" }, { status: 404 });
-  // Allowed even after COMPLETED — per the demo script, the rogue trigger is
+  // Allowed even after COMPLETED - per the demo script, the rogue trigger is
   // fired immediately after the happy path finishes. Only excluded once the
   // task's budget itself has been closed out (cancelled/failed).
   if (!["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA", "COMPLETED"].includes(task.status)) {
@@ -28,13 +29,14 @@ export async function POST(request: Request) {
   }
 
   const authorizedAmount = Math.min(8, task.remainingBudget);
+  await ensureCircuitBreakerDemoAgent();
 
-  const subtask = await prisma.subtask.create({
+  const subtask = await db.subtask.create({
     data: {
       taskId: task.id,
       type: "rogue_demo",
       requiredCapability: "unbounded_payment_request",
-      assignedAgentId: "rogue-agent",
+      assignedAgentId: CIRCUIT_BREAKER_DEMO_AGENT_ID,
       status: "ASSIGNED",
     },
   });
@@ -42,13 +44,13 @@ export async function POST(request: Request) {
   const lock = await lockAgentEscrow({
     taskId: task.id,
     subtaskId: subtask.id,
-    agentId: "rogue-agent",
+    agentId: CIRCUIT_BREAKER_DEMO_AGENT_ID,
     amount: authorizedAmount,
     purpose: "market_research",
   });
 
   if (lock.blocked) {
-    await prisma.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
+    await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
     return NextResponse.json({
       ok: true,
       stage: "lock_blocked",
@@ -59,9 +61,9 @@ export async function POST(request: Request) {
     });
   }
 
-  await emitEvent(prisma, {
+  await emitEvent(db, {
     taskId: task.id,
-    actor: "rogue-agent",
+    actor: CIRCUIT_BREAKER_DEMO_AGENT_ID,
     eventType: "WORK_STARTED",
     payload: { subtaskId: subtask.id, note: "rogue agent authorized for a small legitimate amount" },
   });
@@ -73,7 +75,7 @@ export async function POST(request: Request) {
     purpose: "unbounded_payment_request",
   });
 
-  await prisma.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
+  await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
 
   return NextResponse.json({
     ok: true,

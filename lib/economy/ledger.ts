@@ -1,4 +1,5 @@
-import type { Prisma, TxStatus, TxType } from "@/app/generated/prisma/client";
+import type { DbClient } from "@/lib/db/client";
+import type { TxStatus, TxType } from "@/lib/db/types";
 
 interface LedgerPairInput {
   taskId: string;
@@ -16,9 +17,9 @@ interface LedgerPairInput {
 
 // Writes the same transaction into BOTH the global CentralLedger (the
 // system-wide audit trail) and, when an agent is involved, that agent's
-// AgentLedger sub-ledger — so every agent gets an isolated statement of its
+// AgentLedger sub-ledger - so every agent gets an isolated statement of its
 // own dealings with the Manager without scanning the whole ledger.
-export async function writeLedgerPair(db: Prisma.TransactionClient, input: LedgerPairInput) {
+export async function writeLedgerPair(db: DbClient, input: LedgerPairInput) {
   const central = await db.centralLedger.create({
     data: {
       taskId: input.taskId,

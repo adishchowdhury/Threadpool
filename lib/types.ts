@@ -6,15 +6,11 @@ export interface TaskRecord {
   qualityThreshold: number;
   status: string;
   finalOutput: string | null;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
   subtasks?: SubtaskRecord[];
   centralEscrow?: { totalLocked: number; totalReleased: number; totalRefunded: number } | null;
-  isOptimized?: boolean;
-  optimizationMode?: string;
-  optimizedTaskSpec?: string | null;
-  optimizerModel?: string | null;
-  optimizerLatencyMs?: number;
 }
 
 export interface SubtaskRecord {
@@ -37,6 +33,7 @@ export interface SubtaskRecord {
 export interface AgentRecord {
   id: string;
   name: string;
+  role: string | null;
   capabilities: string[];
   price: number;
   status: "ACTIVE" | "INACTIVE" | "REVOKED";
@@ -46,6 +43,7 @@ export interface AgentRecord {
   avgLatencyMs: number;
   avgCost: number;
   totalJobs: number;
+  sampleCount: number;
   provider: string;
   model: string | null;
   endpoint: string | null;

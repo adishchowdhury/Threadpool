@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import { emitEvent } from "@/lib/events/emit";
 import * as eth from "@/lib/blockchain/ethereum";
 import * as algo from "@/lib/blockchain/algorand";
@@ -88,12 +88,12 @@ export async function executeX402PaymentGuard(params: {
   const MAX_TRANSACTION_LIMIT = 5000;
   // Premium services quote in Wei/microAlgos (see premium-market-research route);
   // the task's remainingBudget is denominated in whole virtual tokens. 1000
-  // Wei/microAlgo == 1 token is the fixed demo exchange rate — convert before
+  // Wei/microAlgo == 1 token is the fixed demo exchange rate - convert before
   // comparing against or debiting the token budget.
   const TOKEN_UNIT = 1000;
   const tokenCost = params.amount / TOKEN_UNIT;
 
-  return prisma.$transaction(async (db) => {
+  return db.$transaction(async (db) => {
     // 1. Fetch Task
     const task = await db.task.findUniqueOrThrow({ where: { id: params.taskId } });
 
@@ -283,7 +283,7 @@ const X402_REAL_MAX_TOKEN_COST = 5;
  * Deterministic Circuit Breaker / budget authorization for the real x402
  * Algorand flow (see lib/blockchain/x402Algorand.ts). Unlike
  * executeX402PaymentGuard above, this does NOT perform the on-chain payment
- * itself — the real ASA transfer is signed and settled by the official x402
+ * itself - the real ASA transfer is signed and settled by the official x402
  * SDK (@x402/fetch + @x402/avm) as part of the HTTP round trip. This function
  * only decides whether the agent is authorized to spend, before that HTTP
  * call is made, and reserves a PaymentIntent row so the spend can't be
@@ -297,7 +297,7 @@ export async function authorizeX402Spend(params: {
   purpose: string;
   idempotencyKey: string;
 }): Promise<{ decision: "APPROVE"; intentId: string } | { decision: "BLOCK"; reason: string }> {
-  return prisma.$transaction(async (db) => {
+  return db.$transaction(async (db) => {
     const task = await db.task.findUniqueOrThrow({ where: { id: params.taskId } });
 
     let blockedReason = "";
@@ -387,7 +387,7 @@ export async function finalizeX402Settlement(params: {
   network: string;
   atomicAmount?: string;
 }): Promise<void> {
-  await prisma.$transaction(async (db) => {
+  await db.$transaction(async (db) => {
     await db.blockchainTransaction.create({
       data: {
         paymentIntentId: params.intentId,
@@ -422,7 +422,7 @@ export async function finalizeX402Settlement(params: {
 
 /** Marks a reserved PaymentIntent as failed (e.g. the real x402 HTTP round trip errored). */
 export async function failX402Intent(intentId: string, reason: string): Promise<void> {
-  await prisma.paymentIntent.update({
+  await db.paymentIntent.update({
     where: { id: intentId },
     data: { status: "FAILED", failureReason: reason },
   });

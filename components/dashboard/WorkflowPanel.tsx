@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SubtaskRecord } from "@/lib/types";
+import { WEB_CAPABLE_CAPABILITIES } from "@/lib/capabilities/catalog";
 import type { KravenEvent } from "@/lib/hooks/useEventStream";
 import {
   Bot,
@@ -13,6 +14,7 @@ import {
   GitBranch,
   Globe,
   History,
+  ListChecks,
   Loader2,
   Maximize,
   MessageSquareText,
@@ -21,21 +23,13 @@ import {
   Plus,
   RotateCcw,
   ShieldCheck,
-  Sparkles,
   XCircle,
 } from "lucide-react";
 
-// Capabilities the worker (lib/manager/worker.ts) attempts a live web-scrape
-// pass for before calling Gemini. Kept in sync with
-// WEB_GROUNDED_CAPABILITIES there — this list only decides whether the
-// graph *shows* a scraper node, the backend list decides whether scraping
-// actually runs.
-const WEB_GROUNDED_CAPABILITIES = new Set([
-  "market_research",
-  "financial_analysis",
-  "data_extraction",
-  "competitive_analysis",
-]);
+// Capabilities that may fetch live web data (lib/capabilities/catalog.ts) -
+// decides whether the graph *shows* a web node; the backend decides whether
+// a fetch actually runs (and emits WEB_DATA_FETCHED when it does).
+const WEB_GROUNDED_CAPABILITIES = WEB_CAPABLE_CAPABILITIES;
 
 type WebDataFetchedPayload = {
   subtaskId: string | null;
@@ -62,6 +56,9 @@ const NODE_HEIGHT = 84;
 const CANVAS_HEIGHT = 540;
 const MIN_SCALE = 0.35;
 const MAX_SCALE = 2;
+// Vertical space reserved above the graph for the status chip (and the recall card when present).
+const OVERLAY_INSET = 48;
+const OVERLAY_INSET_WITH_RECALL = 152;
 
 type StatusTone = {
   chip: string;
@@ -95,70 +92,57 @@ type GraphEdge = {
 
 const ACTIVE_STATUSES = new Set(["BIDDING", "ASSIGNED", "EXECUTING", "AWAITING_QA"]);
 
+// A deliberately small palette: neutral by default, one accent for "in
+// progress", green for done, red for failed. Real SaaS workflow tools
+// (CI pipelines, PM boards) don't assign every intermediate status its own
+// hue - that reads as decoration, not information. The exact sub-status
+// (BIDDING vs EXECUTING, etc.) is still shown as text on hover.
+const TONE_IDLE: StatusTone = {
+  chip: "bg-muted text-muted-foreground ring-border",
+  node: "border-border bg-card",
+  glow: "shadow-sm",
+  edge: "stroke-neutral-300 dark:stroke-neutral-700",
+  icon: "bg-muted text-muted-foreground",
+};
+const TONE_ANCHOR: StatusTone = {
+  chip: "bg-foreground text-background ring-transparent",
+  node: "border-border bg-card",
+  glow: "shadow-sm",
+  edge: "stroke-neutral-400 dark:stroke-neutral-600",
+  icon: "bg-muted text-foreground",
+};
+const TONE_ACTIVE: StatusTone = {
+  chip: "bg-muted text-foreground ring-border",
+  node: "border-foreground/25 bg-card",
+  glow: "shadow-sm",
+  edge: "stroke-foreground/60 dark:stroke-foreground/50",
+  icon: "bg-muted text-foreground",
+};
+const TONE_SUCCESS: StatusTone = {
+  chip: "bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-400",
+  node: "border-emerald-500/30 bg-card",
+  glow: "shadow-sm",
+  edge: "stroke-emerald-500/60 dark:stroke-emerald-500/50",
+  icon: "bg-muted text-muted-foreground",
+};
+const TONE_DANGER: StatusTone = {
+  chip: "bg-destructive/10 text-destructive ring-destructive/20",
+  node: "border-destructive/30 bg-card",
+  glow: "shadow-sm",
+  edge: "stroke-destructive/55",
+  icon: "bg-muted text-muted-foreground",
+};
+
 const STATUS_TONES: Record<string, StatusTone> = {
-  READY: {
-    chip: "bg-neutral-900/8 text-neutral-900 ring-neutral-900/15 dark:bg-white/12 dark:text-neutral-100 dark:ring-white/20",
-    node: "border-neutral-900/20 bg-white/90 dark:border-white/25 dark:bg-neutral-900/70",
-    glow: "shadow-[0_0_18px_rgba(0,0,0,0.08)] dark:shadow-[0_0_24px_rgba(255,255,255,0.12)]",
-    edge: "stroke-neutral-800/70 dark:stroke-white/70",
-    icon: "bg-neutral-900 text-white dark:bg-white dark:text-neutral-950",
-  },
-  PENDING: {
-    chip: "bg-neutral-500/10 text-neutral-600 ring-neutral-400/20 dark:bg-neutral-400/12 dark:text-neutral-300 dark:ring-neutral-300/15",
-    node: "border-neutral-300 bg-white/90 dark:border-neutral-700/80 dark:bg-neutral-900/88",
-    glow: "",
-    edge: "stroke-neutral-400/55 dark:stroke-neutral-500/45",
-    icon: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",
-  },
-  BIDDING: {
-    chip: "bg-blue-500/10 text-blue-700 ring-blue-400/25 dark:bg-blue-400/15 dark:text-blue-200 dark:ring-blue-300/25",
-    node: "border-blue-400/50 bg-blue-50/90 dark:border-blue-300/45 dark:bg-blue-950/45",
-    glow: "shadow-[0_0_20px_rgba(59,130,246,0.14)] dark:shadow-[0_0_30px_rgba(96,165,250,0.18)]",
-    edge: "stroke-blue-500/80 dark:stroke-blue-300/80",
-    icon: "bg-blue-500 text-white dark:bg-blue-400 dark:text-neutral-950",
-  },
-  ASSIGNED: {
-    chip: "bg-cyan-500/10 text-cyan-700 ring-cyan-400/25 dark:bg-cyan-400/15 dark:text-cyan-100 dark:ring-cyan-300/25",
-    node: "border-cyan-400/50 bg-cyan-50/90 dark:border-cyan-300/45 dark:bg-cyan-950/40",
-    glow: "shadow-[0_0_20px_rgba(34,211,238,0.12)] dark:shadow-[0_0_30px_rgba(34,211,238,0.16)]",
-    edge: "stroke-cyan-500/80 dark:stroke-cyan-300/80",
-    icon: "bg-cyan-500 text-white dark:bg-cyan-300 dark:text-neutral-950",
-  },
-  EXECUTING: {
-    chip: "bg-amber-500/10 text-amber-700 ring-amber-400/25 dark:bg-amber-300/15 dark:text-amber-100 dark:ring-amber-200/25",
-    node: "border-amber-400/60 bg-amber-50/90 dark:border-amber-200/50 dark:bg-amber-950/35",
-    glow: "shadow-[0_0_22px_rgba(251,191,36,0.16)] dark:shadow-[0_0_34px_rgba(251,191,36,0.22)]",
-    edge: "stroke-amber-500/85 dark:stroke-amber-200/85",
-    icon: "bg-amber-500 text-white dark:bg-amber-300 dark:text-neutral-950",
-  },
-  AWAITING_QA: {
-    chip: "bg-violet-500/10 text-violet-700 ring-violet-400/25 dark:bg-violet-300/15 dark:text-violet-100 dark:ring-violet-200/25",
-    node: "border-violet-400/60 bg-violet-50/90 dark:border-violet-200/50 dark:bg-violet-950/40",
-    glow: "shadow-[0_0_22px_rgba(167,139,250,0.14)] dark:shadow-[0_0_34px_rgba(167,139,250,0.2)]",
-    edge: "stroke-violet-500/85 dark:stroke-violet-200/85",
-    icon: "bg-violet-500 text-white dark:bg-violet-300 dark:text-neutral-950",
-  },
-  DONE: {
-    chip: "bg-emerald-500/10 text-emerald-700 ring-emerald-400/25 dark:bg-emerald-300/15 dark:text-emerald-100 dark:ring-emerald-200/25",
-    node: "border-emerald-400/50 bg-emerald-50/90 dark:border-emerald-200/45 dark:bg-emerald-950/35",
-    glow: "shadow-[0_0_18px_rgba(52,211,153,0.12)] dark:shadow-[0_0_28px_rgba(52,211,153,0.16)]",
-    edge: "stroke-emerald-500/80 dark:stroke-emerald-200/80",
-    icon: "bg-emerald-500 text-white dark:bg-emerald-300 dark:text-neutral-950",
-  },
-  FAILED: {
-    chip: "bg-rose-500/10 text-rose-700 ring-rose-400/25 dark:bg-rose-300/15 dark:text-rose-100 dark:ring-rose-200/25",
-    node: "border-rose-400/60 bg-rose-50/90 dark:border-rose-200/50 dark:bg-rose-950/40",
-    glow: "shadow-[0_0_22px_rgba(251,113,133,0.14)] dark:shadow-[0_0_34px_rgba(251,113,133,0.2)]",
-    edge: "stroke-rose-500/85 dark:stroke-rose-200/85",
-    icon: "bg-rose-500 text-white dark:bg-rose-300 dark:text-neutral-950",
-  },
-  WAITING: {
-    chip: "bg-neutral-500/10 text-neutral-600 ring-neutral-400/20 dark:bg-neutral-400/12 dark:text-neutral-300 dark:ring-neutral-300/15",
-    node: "border-neutral-300 bg-white/90 dark:border-neutral-700/80 dark:bg-neutral-900/88",
-    glow: "",
-    edge: "stroke-neutral-400/55 dark:stroke-neutral-500/45",
-    icon: "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200",
-  },
+  READY: TONE_ANCHOR,
+  PENDING: TONE_IDLE,
+  BIDDING: TONE_ACTIVE,
+  ASSIGNED: TONE_ACTIVE,
+  EXECUTING: TONE_ACTIVE,
+  AWAITING_QA: TONE_ACTIVE,
+  DONE: TONE_SUCCESS,
+  FAILED: TONE_DANGER,
+  WAITING: TONE_IDLE,
 };
 
 function statusTone(status: string) {
@@ -178,7 +162,7 @@ function shortLabel(value: string, fallback: string) {
 }
 
 function buildGraph(subtasks: SubtaskRecord[], events: KravenEvent[]) {
-  // Latest WEB_DATA_FETCHED event per subtask — a subtask can be reattempted
+  // Latest WEB_DATA_FETCHED event per subtask - a subtask can be reattempted
   // after failed QA, which re-runs the scrape, so take the most recent one.
   const webDataBySubtask = new Map<string, WebDataFetchedPayload>();
   for (const event of events) {
@@ -250,7 +234,7 @@ function buildGraph(subtasks: SubtaskRecord[], events: KravenEvent[]) {
         status = "EXECUTING";
         detail = "Scraping web...";
       } else if (hasPassedExecuting) {
-        // Subtask moved past EXECUTING before the event landed (fast run) —
+        // Subtask moved past EXECUTING before the event landed (fast run) -
         // read as "no live data" rather than stuck forever on "scraping".
         status = "PENDING";
         detail = "No live data";
@@ -348,7 +332,7 @@ function NodeIcon({ node }: { node: GraphNode }) {
   if (node.kind === "qa") return <ShieldCheck className="size-4" />;
   if (node.kind === "scraper") return <Globe className="size-4" />;
   if (node.kind === "output") return <MessageSquareText className="size-4" />;
-  return <Sparkles className="size-4" />;
+  return <ListChecks className="size-4" />;
 }
 
 function WorkflowNode({
@@ -376,10 +360,10 @@ function WorkflowNode({
       onMouseEnter={() => onHoverChange(node.id)}
       onMouseLeave={() => onHoverChange(null)}
       className={cn(
-        "absolute cursor-grab select-none rounded-lg border p-2.5 text-left text-neutral-900 shadow-sm transition-shadow duration-200 active:cursor-grabbing dark:text-neutral-100 dark:shadow-none",
+        "animate-in fade-in zoom-in-95 absolute cursor-grab select-none rounded-lg border p-2.5 text-left text-foreground transition-[background-color,border-color,box-shadow,transform] duration-200 active:cursor-grabbing",
         tone.node,
         tone.glow,
-        selected && "ring-2 ring-neutral-900/60 dark:ring-white/70",
+        selected && "ring-2 ring-foreground/50",
         isActive && "scale-[1.01]",
       )}
       style={{ left: pos.x, top: pos.y, width: NODE_WIDTH, height: NODE_HEIGHT, touchAction: "none" }}
@@ -390,21 +374,26 @@ function WorkflowNode({
             <NodeIcon node={node} />
           </span>
           <div className="min-w-0">
-            <div className="truncate text-[11px] uppercase text-neutral-500 dark:text-neutral-400">{node.eyebrow}</div>
+            <div className="truncate text-[11px] uppercase text-muted-foreground">{node.eyebrow}</div>
             <div className="truncate text-sm font-medium leading-5 tracking-tight">{node.title}</div>
           </div>
         </div>
-        <span className={cn("grid size-5 shrink-0 place-items-center rounded-full ring-1", tone.chip)}>
+        <span className={cn("grid size-5 shrink-0 place-items-center rounded-full ring-1 transition-colors duration-200", tone.chip)}>
           <StatusIcon status={node.status} />
         </span>
       </div>
-      <div className="mt-2 flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
-        <span className="h-px flex-1 bg-neutral-300 dark:bg-neutral-600/70" />
+      <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
         <span className="max-w-[120px] truncate">{node.detail}</span>
       </div>
-      {isActive && <span className="absolute -right-1 -top-1 size-3 rounded-full bg-amber-400 shadow-[0_0_18px_rgba(251,191,36,0.6)] dark:bg-amber-200 dark:shadow-[0_0_18px_rgba(253,224,71,0.9)]" />}
-      <span className="absolute -right-1 top-1/2 size-2 -translate-y-1/2 rounded-full border border-neutral-400 bg-white dark:border-neutral-300 dark:bg-neutral-950" />
-      <span className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rounded-full border border-neutral-400 bg-white dark:border-neutral-300 dark:bg-neutral-950" />
+      {isActive && (
+        <span className="absolute -right-1 -top-1 flex size-2.5 items-center justify-center">
+          <span className="absolute size-2.5 animate-ping rounded-full bg-foreground/40" />
+          <span className="relative size-1.5 rounded-full bg-foreground" />
+        </span>
+      )}
+      <span className="absolute -right-1 top-1/2 size-2 -translate-y-1/2 rounded-full border border-border bg-card" />
+      <span className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rounded-full border border-border bg-card" />
     </div>
   );
 }
@@ -422,7 +411,7 @@ function EmptyCanvas({ isPlanning }: { isPlanning?: boolean }) {
           <div className="mx-auto grid size-11 place-items-center rounded-lg border border-neutral-300 bg-white/80 dark:border-neutral-700 dark:bg-neutral-900/80">
             <GitBranch className="size-5 text-neutral-700 dark:text-neutral-200" />
           </div>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">No workflow constructed yet — submit a task to begin.</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">No workflow constructed yet - submit a task to begin.</p>
         </div>
       )}
     </div>
@@ -467,13 +456,22 @@ export function WorkflowPanel({
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const scale = Math.min(1, Math.max(MIN_SCALE, Math.min(rect.width / (graph.width + 80), rect.height / (graph.height + 80))));
+    // Keep the graph clear of the status chip / similar-workflow card pinned to the top.
+    const topInset = memoryRecall ? OVERLAY_INSET_WITH_RECALL : OVERLAY_INSET;
+    const availableHeight = Math.max(120, rect.height - topInset);
+    const scale = Math.min(1, Math.max(MIN_SCALE, Math.min(rect.width / (graph.width + 80), availableHeight / (graph.height + 80))));
     setViewport({
       x: (rect.width - graph.width * scale) / 2,
-      y: (rect.height - graph.height * scale) / 2,
+      y: topInset + (availableHeight - graph.height * scale) / 2,
       scale,
     });
   }
+
+  // Always call the latest fitView (it closes over the current graph size).
+  const fitViewRef = useRef(fitView);
+  useEffect(() => {
+    fitViewRef.current = fitView;
+  });
 
   useEffect(() => {
     if (subtasks.length > 0 && prevCount.current === 0) {
@@ -484,11 +482,20 @@ export function WorkflowPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtasks.length]);
 
+  const hasRecall = Boolean(memoryRecall);
   useEffect(() => {
-    requestAnimationFrame(fitView);
-    window.addEventListener("resize", fitView);
-    return () => window.removeEventListener("resize", fitView);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (prevCount.current > 0) requestAnimationFrame(() => fitViewRef.current());
+  }, [hasRecall]);
+
+  // Refit whenever the container itself changes size (drawer opens, card is
+  // expanded, window resizes) - not just on window resize.
+  useEffect(() => {
+    const el = containerRef.current;
+    requestAnimationFrame(() => fitViewRef.current());
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => fitViewRef.current());
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
   function positionOf(node: GraphNode) {
@@ -514,7 +521,7 @@ export function WorkflowPanel({
   zoomByRef.current = zoomBy;
 
   // React attaches onWheel/onTouch* listeners as passive by default, so
-  // calling preventDefault() inside a synthetic handler is a silent no-op —
+  // calling preventDefault() inside a synthetic handler is a silent no-op -
   // the browser still runs its own native page-zoom alongside our canvas
   // zoom. A real, non-passive DOM listener is required to actually stop it.
   useEffect(() => {
@@ -654,7 +661,7 @@ export function WorkflowPanel({
             <svg className="absolute inset-0 overflow-visible" width={graph.width} height={graph.height} role="img" aria-label="Workflow node connections">
               <defs>
                 <marker id="workflow-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                  <path d="M 0 0 L 10 5 L 0 10 z" className="fill-neutral-400 dark:fill-neutral-300" />
+                  <path d="M 0 0 L 10 5 L 0 10 z" className="fill-neutral-400 dark:fill-neutral-500" />
                 </marker>
               </defs>
               {graph.edges.map((edge) => {
@@ -666,15 +673,18 @@ export function WorkflowPanel({
                   <g key={edge.id}>
                     <path
                       d={connectorPath(fromPos, toPos)}
-                      className={cn(edge.active ? tone.edge : "stroke-neutral-400/60 dark:stroke-neutral-600/55", edge.active && "drop-shadow-[0_0_4px_rgba(125,211,252,0.55)]")}
+                      className={cn(
+                        "transition-[stroke,stroke-width] duration-300 ease-out",
+                        edge.active ? tone.edge : "stroke-neutral-300 dark:stroke-neutral-700",
+                      )}
                       fill="none"
                       markerEnd="url(#workflow-arrow)"
                       strokeLinecap="round"
-                      strokeWidth={edge.active ? 2.6 : 1.7}
+                      strokeWidth={edge.active ? 2 : 1.5}
                       strokeDasharray={edge.dashed ? "5 7" : undefined}
                     />
                     {edge.label && (
-                      <text x={point.x} y={point.y - 8} textAnchor="middle" className="fill-neutral-500 text-[10px] uppercase tracking-normal dark:fill-neutral-400">
+                      <text x={point.x} y={point.y - 8} textAnchor="middle" className="fill-muted-foreground text-[10px] uppercase tracking-normal">
                         {edge.label}
                       </text>
                     )}
@@ -697,7 +707,7 @@ export function WorkflowPanel({
 
           {hoveredNode && tooltipStyle && (
             <div
-              className="pointer-events-none absolute z-40 w-72 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-full overflow-hidden rounded-md border border-panel-border bg-panel p-3 text-panel-foreground shadow-xl backdrop-blur-xl"
+              className="animate-in fade-in zoom-in-95 pointer-events-none absolute z-40 w-72 max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-full overflow-hidden rounded-md border border-panel-border bg-panel p-3 text-panel-foreground shadow-xl backdrop-blur-xl duration-150 ease-out"
               style={{ left: tooltipStyle.left, top: tooltipStyle.top }}
             >
               <div className="mb-2 flex items-center gap-2">
@@ -727,7 +737,7 @@ export function WorkflowPanel({
                     </div>
                   ) : (
                     <div className="text-xs text-panel-muted">
-                      No live data fetched — {hoveredNode.webData.reason ?? "unknown reason"}. Worker fell back to its own training data.
+                      No live data fetched - {hoveredNode.webData.reason ?? "unknown reason"}. Worker fell back to its own training data.
                     </div>
                   )
                 ) : (
@@ -761,48 +771,52 @@ export function WorkflowPanel({
         </div>
       )}
 
-      {/* Workflow status chip */}
-      <div className="absolute left-1/2 top-4 z-20 flex -translate-x-1/2 items-center gap-2">
+      {/* Status chip + similar-workflow card share one column so they can never overlap. */}
+      <div className="pointer-events-none absolute inset-x-3 top-3 z-20 flex flex-col items-center gap-2">
         {subtasks.length > 0 && (
           <Badge
-            variant={runningCount > 0 ? "secondary" : "outline"}
-            className="gap-1 rounded-md border-panel-border bg-panel text-[10px] text-panel-foreground shadow-lg backdrop-blur-xl"
+            variant="outline"
+            className="animate-in fade-in zoom-in-95 h-6 gap-1.5 rounded-full border-panel-border bg-panel px-2.5 text-[11px] font-medium text-panel-foreground shadow-lg backdrop-blur-xl duration-300"
           >
-            {runningCount > 0 && <Loader2 className="size-3 animate-spin" />}
-            {doneCount}/{subtasks.length} done
+            {runningCount > 0 ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : doneCount === subtasks.length ? (
+              <CheckCircle2 className="size-3 text-emerald-500" />
+            ) : null}
+            <span className="tabular-nums">
+              {doneCount}/{subtasks.length} done
+            </span>
           </Badge>
+        )}
+
+        {memoryRecall && (
+          <div
+            title={memoryRecall.agentsUsed.length > 0 ? `Previously used: ${memoryRecall.agentsUsed.join(", ")}` : undefined}
+            className="animate-in fade-in slide-in-from-top-1 pointer-events-auto w-full max-w-sm rounded-xl border border-panel-border bg-panel p-3.5 text-panel-foreground shadow-xl backdrop-blur-xl duration-300"
+          >
+            <div className="flex items-center gap-1.5 text-xs font-semibold">
+              <History className="size-3.5 text-panel-muted" />
+              Similar workflow found
+            </div>
+            <dl className="mt-3 grid grid-cols-4 gap-3">
+              {[
+                { label: "Match", value: `${Math.round(memoryRecall.similarity * 100)}%` },
+                { label: "Quality", value: String(Math.round(memoryRecall.historicalQuality)) },
+                { label: "Cost", value: `${memoryRecall.historicalCost}t` },
+                { label: "Time", value: `${Math.round(memoryRecall.historicalLatencyMs / 1000)}s` },
+              ].map((item) => (
+                <div key={item.label}>
+                  <dt className="text-[11px] text-panel-muted">{item.label}</dt>
+                  <dd className="mt-0.5 font-mono text-sm leading-none font-semibold tabular-nums">{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         )}
       </div>
 
-      {memoryRecall && (
-        <div className="animate-in fade-in slide-in-from-top-1 absolute left-1/2 top-14 z-20 w-[min(19rem,calc(100vw-1.5rem))] -translate-x-1/2 rounded-md border border-accent-strong/40 bg-panel p-2.5 text-panel-foreground shadow-xl backdrop-blur-xl duration-300">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-strong">
-            <History className="size-3.5" />
-            Similar workflow found
-          </div>
-          <div className="mt-1.5 grid grid-cols-3 gap-2 font-mono text-[11px]">
-            <div>
-              <div className="text-panel-muted">Similarity</div>
-              <div>{Math.round(memoryRecall.similarity * 100)}%</div>
-            </div>
-            <div>
-              <div className="text-panel-muted">Hist. quality</div>
-              <div>{Math.round(memoryRecall.historicalQuality)}</div>
-            </div>
-            <div>
-              <div className="text-panel-muted">Hist. cost</div>
-              <div>{memoryRecall.historicalCost}t</div>
-            </div>
-          </div>
-          <div className="mt-1 font-mono text-[10px] text-panel-muted">
-            Latency {(memoryRecall.historicalLatencyMs / 1000).toFixed(0)}s · previously used{" "}
-            {memoryRecall.agentsUsed.join(", ")}
-          </div>
-        </div>
-      )}
-
       {/* Bottom-right zoom controls. Step detail now appears as a hover tooltip anchored to the node itself. */}
-      <div className="pointer-events-none absolute bottom-36 right-3 z-30 flex items-end gap-2 sm:bottom-4 sm:right-4">
+      <div className="pointer-events-none absolute bottom-3 right-3 z-30 flex items-end gap-2">
         <div className="pointer-events-auto flex items-center gap-1 rounded-md border border-panel-border bg-panel p-1 shadow-lg backdrop-blur-xl transition-colors">
           <Button variant="ghost" size="icon" className="size-7 text-panel-muted hover:text-panel-foreground" onClick={() => smoothZoomBy(0.85)}>
             <Minus className="size-3.5" />

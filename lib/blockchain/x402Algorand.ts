@@ -16,7 +16,7 @@ import {
  * https://github.com/x402-foundation/x402) instead of a custom header scheme.
  *
  * The AVM "exact" scheme pays via an Algorand Standard Asset transfer (USDC by
- * default) inside an atomic group — never a native-ALGO self-payment. Verify
+ * default) inside an atomic group - never a native-ALGO self-payment. Verify
  * and settle are delegated to a real x402 facilitator over HTTP; this app never
  * signs the facilitator's own fee-payer leg.
  */
@@ -24,7 +24,7 @@ import {
 // The hosted GoPlausible facilitator (and the AVM exact scheme's own
 // route-support check) matches network ids by exact string, so this must be
 // the full-genesis-hash CAIP-2 form the facilitator actually advertises via
-// GET /supported — not @x402/avm's shorter ALGORAND_TESTNET_CAIP2 constant,
+// GET /supported - not @x402/avm's shorter ALGORAND_TESTNET_CAIP2 constant,
 // which that facilitator does not list as supported.
 export const X402_ALGORAND_NETWORK =
   process.env.ALGOD_NETWORK === "mainnet"
@@ -70,7 +70,7 @@ export function isRealX402PayerConfigured(): boolean {
 /**
  * Resolves the receiving address for the x402-protected route. Falls back to
  * the same funded manager account used to pay (a self-pay demo) when no
- * distinct SERVICE_ADDRESS is configured — still a real signed ASA transfer
+ * distinct SERVICE_ADDRESS is configured - still a real signed ASA transfer
  * and a real on-chain settlement, just payer and payee coincide.
  */
 export function getX402PayToAddress(): string {
@@ -85,7 +85,7 @@ export function getX402PayToAddress(): string {
 /**
  * Extracts the real reason a paid x402 request failed. On a failed retry the
  * response body is typically `{}` (this app doesn't customize
- * unpaidResponseBody) — the actual reason (e.g. the facilitator's simulation
+ * unpaidResponseBody) - the actual reason (e.g. the facilitator's simulation
  * error) lives in the base64-encoded `payment-required` / `PAYMENT-REQUIRED`
  * response header, per the x402 spec. Falls back to the raw body text.
  */
@@ -108,7 +108,7 @@ export async function describeX402Failure(response: Response): Promise<string> {
  * Reads the real settlement receipt off a successful paid x402 response.
  * This SDK version names the header `PAYMENT-RESPONSE` (not the
  * `X-PAYMENT-RESPONSE` name used elsewhere in the x402 ecosystem/spec drafts)
- * — confirmed against a live settled response during implementation — so both
+ * - confirmed against a live settled response during implementation - so both
  * are checked here for robustness across facilitator/SDK versions.
  */
 export function getX402SettleResponse(
@@ -133,7 +133,7 @@ export function getX402PayingFetch(): typeof fetch {
   if (cachedPayingFetch) return cachedPayingFetch;
   const account = getManagerAccount();
   if (!account) {
-    throw new Error("ALGOD_MNEMONIC/MANAGER_MNEMONIC not configured — cannot sign real x402 Algorand payments");
+    throw new Error("ALGOD_MNEMONIC/MANAGER_MNEMONIC not configured - cannot sign real x402 Algorand payments");
   }
   // ClientAvmSigner expects a base64 64-byte key (32-byte seed + 32-byte public
   // key); algosdk's Account.sk is exactly that nacl secret-key format.

@@ -1,4 +1,4 @@
-﻿import { prisma } from "@/lib/prisma";
+﻿import { db } from "@/lib/db/client";
 import { emitEvent } from "@/lib/events/emit";
 
 function significantWords(text: string): string[] {
@@ -14,11 +14,15 @@ function significantWords(text: string): string[] {
   );
 }
 
-// Deterministic similarity: word-overlap (Jaccard) over prior task prompts —
+// A past workflow counts as "similar" only above this word-overlap score.
+// Below it the match is coincidental and would mislead the user.
+export const MIN_REUSE_SIMILARITY = 0.5;
+
+// Deterministic similarity: word-overlap (Jaccard) over prior task prompts -
 // no neural network, just ranking. Good enough to demonstrate "Kraven
 // recalls a similar past workflow."
 export async function findSimilarWorkflow(taskType: string, prompt: string) {
-  const candidates = await prisma.workflowMemory.findMany({
+  const candidates = await db.workflowMemory.findMany({
     where: { taskType, success: true },
     orderBy: { createdAt: "desc" },
     take: 25,
@@ -36,7 +40,7 @@ export async function findSimilarWorkflow(taskType: string, prompt: string) {
     if (!best || similarity > best.similarity) best = { memory, similarity };
   }
 
-  return best && best.similarity > 0 ? best : null;
+  return best && best.similarity >= MIN_REUSE_SIMILARITY ? best : null;
 }
 
 export async function storeWorkflow(params: {
@@ -52,7 +56,7 @@ export async function storeWorkflow(params: {
   quality: number;
   success: boolean;
 }) {
-  await prisma.workflowMemory.create({
+  await db.workflowMemory.create({
     data: {
       taskType: params.taskType,
       taskFeatures: JSON.stringify(significantWords(params.prompt)),
@@ -67,7 +71,7 @@ export async function storeWorkflow(params: {
     },
   });
 
-  await emitEvent(prisma, {
+  await emitEvent(db, {
     taskId: params.taskId,
     actor: "system",
     eventType: "WORKFLOW_MEMORY_STORED",

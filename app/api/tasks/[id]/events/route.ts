@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 
-// Persisted event history for one task — used to replay a past chat's
+// Persisted event history for one task - used to replay a past chat's
 // activity feed on reopen, since the live SSE stream only buffers events
 // seen during the current browser session.
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const rows = await prisma.event.findMany({
+  const rows = await db.event.findMany({
     where: { taskId: id },
     orderBy: { createdAt: "asc" },
   });

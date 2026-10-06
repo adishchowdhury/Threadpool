@@ -10,7 +10,7 @@ const USD_PER_TOKEN = 0.01;
 
 /**
  * Real x402-protected resource that internal ledger mirrors (escrow lock,
- * agent payout, refund — see lib/economy/escrow.ts) pay for, replacing the
+ * agent payout, refund - see lib/economy/escrow.ts) pay for, replacing the
  * old 0-ALGO self-payment "ledger_mirror" note. withX402 (the official
  * @x402/next package) returns a genuine HTTP 402 with payment requirements,
  * verifies the caller's signed Algorand USDC payment against the configured

@@ -1,6 +1,6 @@
-﻿import { prisma } from "@/lib/prisma";
+﻿import { db } from "@/lib/db/client";
 import { publish } from "@/lib/events/bus";
-import type { Prisma } from "@/app/generated/prisma/client";
+import type { DbClient } from "@/lib/db/client";
 
 export const EVENT_TYPES = [
   "TASK_CREATED",
@@ -24,23 +24,27 @@ export const EVENT_TYPES = [
   "WALLET_REVOKED",
   "TASK_CANCELLED",
   "ESCROW_REFUNDED",
+  "ESCROW_REALLOCATED",
   "TASK_FAILED",
   "TASK_COMPLETED",
   "REPUTATION_UPDATED",
   "WORKFLOW_MEMORY_STORED",
   "WORKFLOW_ANCHORED",
   "WEB_DATA_FETCHED",
-  "KRAVEN_OPTIMIZER_STARTED",
-  "KRAVEN_OPTIMIZER_COMPLETED",
-  "KRAVEN_OPTIMIZER_FAILED",
+  "NUMERIC_CHECK_COMPLETED",
+  "PLAN_ADJUSTED",
+  "TOOL_CALLED",
+  "INTEGRATION_REVIEW_COMPLETED",
+  "REWORK_REQUESTED",
+  "REWORK_COMPLETED",
 ] as const;
 
 export type KravenEventType = (typeof EVENT_TYPES)[number];
 
 // Accepts an optional transaction client so callers inside a
-// prisma.$transaction() can emit atomically with the mutation they describe.
+// db.$transaction() can emit atomically with the mutation they describe.
 export async function emitEvent(
-  db: Prisma.TransactionClient | typeof prisma,
+  db: DbClient,
   params: { taskId?: string | null; actor: string; eventType: KravenEventType; payload?: unknown },
 ) {
   const row = await db.event.create({

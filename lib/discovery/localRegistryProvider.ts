@@ -1,18 +1,19 @@
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import type { AgentDiscoveryProvider, DiscoverableAgent } from "@/lib/discovery/types";
 
 export class LocalRegistryProvider implements AgentDiscoveryProvider {
   readonly source = "local-registry";
 
   async discover(capability: string): Promise<DiscoverableAgent[]> {
-    const agents = await prisma.agent.findMany({
-      where: { status: { not: "REVOKED" } },
+    const agents = await db.agent.findMany({
+      where: { status: "ACTIVE" },
     });
 
     return agents
       .map((a) => ({
         id: a.id,
         name: a.name,
+        role: a.role ?? null,
         capabilities: JSON.parse(a.capabilities) as string[],
         price: a.price,
         endpoint: a.endpoint,
@@ -23,6 +24,7 @@ export class LocalRegistryProvider implements AgentDiscoveryProvider {
         avgLatencyMs: a.avgLatencyMs,
         avgCost: a.avgCost,
         totalJobs: a.totalJobs,
+        sampleCount: a.sampleCount ?? 0,
       }))
       .filter((a) => a.capabilities.includes(capability));
   }

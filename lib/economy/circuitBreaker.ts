@@ -1,23 +1,18 @@
-// The Circuit Breaker — the deterministic safety boundary of the whole economy.
+// The Circuit Breaker - the deterministic safety boundary of the whole economy.
 //
 // Rule: LLMs may PROPOSE a transaction. This function is the only authority
 // on whether it actually happens. It has zero dependency on any LLM output
-// at decision time — it only reads numbers/enums already persisted in the DB.
+// at decision time - it only reads numbers/enums already persisted in the DB.
 // Never call this with anything derived live from a model response; the
 // caller must have already written the proposal to the DB (Bid, Subtask,
 // PayoutRequest, etc.) before this evaluates it.
 
-export const ALLOWED_PURPOSES = [
-  "research",
-  "writing",
-  "report_generation",
-  "summarization",
-  "quality_verification",
-  "market_research",
-  "financial_analysis",
-  "data_extraction",
-  "review",
-] as const;
+import { CAPABILITY_IDS } from "@/lib/capabilities/catalog";
+
+// Escrow purposes = the capabilities the Manager can hire for (plus the
+// legacy "research" purpose). Derived from the catalog so adding a
+// capability cannot leave its escrow locks silently blocked.
+export const ALLOWED_PURPOSES = ["research", ...CAPABILITY_IDS] as const;
 
 export type AllowedPurpose = (typeof ALLOWED_PURPOSES)[number];
 

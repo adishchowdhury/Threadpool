@@ -1,6 +1,6 @@
 ﻿import { createHash } from "crypto";
 import { emitEvent } from "@/lib/events/emit";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import { isRealAlgorandConfigured, submitAnchorTransaction } from "@/lib/blockchain/algosdkClient";
 import {
   getX402PayingFetch,
@@ -18,7 +18,7 @@ const DEMO_SERVICE_ADDRESS = "KRAVEN402SERVICEACCOUNTXXXXXXXXXXXXXX";
 
 // Algorand addresses are 58-char base32 strings. We don't hold real signing
 // keys for every seeded agent, so each wallet gets a deterministic
-// mock-testnet address derived from its wallet id — stable across reseeds,
+// mock-testnet address derived from its wallet id - stable across reseeds,
 // unique per wallet, and clearly an address (not a random blob) when shown
 // in the UI.
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -166,7 +166,7 @@ export async function sendAlgorandPayment(
     txId = `x402-tx-${Math.random().toString(36).substring(2, 15)}`;
   }
 
-  await emitEvent(prisma, {
+  await emitEvent(db, {
     taskId,
     actor: requestingAgentId,
     eventType: "TRANSACTION_APPROVED",
@@ -182,17 +182,17 @@ export async function sendAlgorandPayment(
 // Settlement adapter used to mirror an internal virtual-token wallet
 // transfer (escrow lock/payout/refund) onto Algorand testnet, so agent-to-
 // agent payments have an on-chain record. The internal ledger remains
-// authoritative — this never gates or reverses it, it only mirrors what the
+// authoritative - this never gates or reverses it, it only mirrors what the
 // ledger already decided.
 //
 // The mirror is a REAL x402 payment (402 -> sign -> facilitator verify ->
-// facilitator settle) against /api/x402/ledger-mirror — see
-// lib/blockchain/x402Algorand.ts — not a self-payment note. `amountMicroAlgos`
+// facilitator settle) against /api/x402/ledger-mirror - see
+// lib/blockchain/x402Algorand.ts - not a self-payment note. `amountMicroAlgos`
 // carries the internal virtual-token amount (unchanged param name to keep
 // escrow.ts's call sites untouched); the route converts it to a real USDC
 // price via a dynamic price callback. Falls back to the old anchored-note
 // mock only when no real signer is configured (ALGOD_MNEMONIC/MANAGER_MNEMONIC
-// unset), and is labeled as such — it never claims x402 ran when it didn't.
+// unset), and is labeled as such - it never claims x402 ran when it didn't.
 export async function mirrorTransaction(params: {
   fromAddress: string;
   toAddress: string;
@@ -225,7 +225,7 @@ export async function mirrorTransaction(params: {
 
   const settlement = getX402SettleResponse(response);
   if (!settlement) {
-    throw new Error("x402 ledger-mirror response missing a PAYMENT-RESPONSE header — cannot confirm real settlement");
+    throw new Error("x402 ledger-mirror response missing a PAYMENT-RESPONSE header - cannot confirm real settlement");
   }
 
   return { txId: settlement.transaction, network: settlement.network, status: "CONFIRMED" };

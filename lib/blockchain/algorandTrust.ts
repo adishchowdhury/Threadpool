@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import { emitEvent } from "@/lib/events/emit";
 import { isRealAlgorandConfigured, submitAnchorTransaction } from "@/lib/blockchain/algosdkClient";
 
@@ -57,7 +57,7 @@ export async function commitWorkflowEvent(input: WorkflowEventInput): Promise<{
   const idempotencyHash = computeSha256(`${input.workflowId}_${input.taskId}_${input.eventType}_${payloadHash}`);
   
   // Create pending database record
-  const dbRecord = await prisma.blockchainWorkflowEvent.create({
+  const dbRecord = await db.blockchainWorkflowEvent.create({
     data: {
       workflowId: input.workflowId,
       taskId: input.taskId || null,
@@ -73,7 +73,7 @@ export async function commitWorkflowEvent(input: WorkflowEventInput): Promise<{
   // If blockchain trust layer is disabled or no signing account is configured, mark as SKIPPED
   if (!BLOCKCHAIN_ENABLED || !isRealAlgorandConfigured()) {
     console.log(`[Algorand Trust] Skiping blockchain anchor for event ${input.eventType}. (BLOCKCHAIN_ENABLED is false or credentials missing)`);
-    const updated = await prisma.blockchainWorkflowEvent.update({
+    const updated = await db.blockchainWorkflowEvent.update({
       where: { id: dbRecord.id },
       data: { status: "SKIPPED" },
     });
@@ -100,7 +100,7 @@ export async function commitWorkflowEvent(input: WorkflowEventInput): Promise<{
     console.log(`[Algorand Trust] Anchored event ${input.eventType} on-chain. Payload Hash: ${payloadHash}. TxId: ${txId}`);
 
     // Update database record to CONFIRMED
-    const updated = await prisma.blockchainWorkflowEvent.update({
+    const updated = await db.blockchainWorkflowEvent.update({
       where: { id: dbRecord.id },
       data: {
         status: "CONFIRMED",
@@ -110,7 +110,7 @@ export async function commitWorkflowEvent(input: WorkflowEventInput): Promise<{
     });
 
     // Emit workflow event
-    await emitEvent(prisma, {
+    await emitEvent(db, {
       taskId: input.taskId || "system",
       actor: input.fromAgentId || "system",
       eventType: "WORKFLOW_ANCHORED",
@@ -125,7 +125,7 @@ export async function commitWorkflowEvent(input: WorkflowEventInput): Promise<{
     };
   } catch (err: any) {
     console.error(`[Algorand Trust Error] Failed to anchor event: ${err.message}`);
-    const updated = await prisma.blockchainWorkflowEvent.update({
+    const updated = await db.blockchainWorkflowEvent.update({
       where: { id: dbRecord.id },
       data: {
         status: "FAILED",
@@ -154,7 +154,7 @@ export async function verifyWorkflowEvent(
     const calculatedHash = computeSha256(canonicalString);
 
     // Look up the registered proof in our trust database registry
-    const record = await prisma.blockchainWorkflowEvent.findFirst({
+    const record = await db.blockchainWorkflowEvent.findFirst({
       where: {
         workflowId,
         eventType,
@@ -174,7 +174,7 @@ export async function verifyWorkflowEvent(
     const match = record.payloadHash === calculatedHash;
     if (!match) {
       // Log an integrity / security breach event
-      await prisma.securityEvent.create({
+      await db.securityEvent.create({
         data: {
           taskId: record.taskId,
           type: "INTEGRITY_MISMATCH",

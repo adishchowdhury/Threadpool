@@ -1,40 +1,52 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useEventStream, type KravenEvent } from "@/lib/hooks/useEventStream";
-import { FloatingChatBar } from "@/components/dashboard/FloatingChatBar";
-import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
-import { WorkflowPanel } from "@/components/dashboard/WorkflowPanel";
-import { EconomyPanel } from "@/components/dashboard/EconomyPanel";
-import { FinalOutputPanel } from "@/components/dashboard/FinalOutputPanel";
-import { RogueDemoButton } from "@/components/dashboard/RogueDemoButton";
-import { ChatHistoryPanel } from "@/components/dashboard/ChatHistoryPanel";
+import { Composer } from "@/components/dashboard/Composer";
+import { DetailsDrawer } from "@/components/dashboard/DetailsDrawer";
 import { MarketplacePanel } from "@/components/dashboard/MarketplacePanel";
-import { UserMenu } from "@/components/dashboard/UserMenu";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import { RunThread } from "@/components/dashboard/RunThread";
+import { Sidebar } from "@/components/dashboard/Sidebar";
 import { firebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/lib/use-auth-user";
+import { cn } from "@/lib/utils";
 import type { AgentRecord, TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord, SecurityEventRecord } from "@/lib/types";
-import { FileText, History, RotateCcw, Store } from "lucide-react";
+import { Loader2, PanelLeftOpen, PanelRight } from "lucide-react";
 import { toast } from "sonner";
 
-const ACTIVE_STATUSES = new Set(["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA"]);
-const TERMINAL_STATUSES = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
+const EXAMPLES: Array<{ title: string; prompt: string }> = [
+  {
+    title: "Market analysis",
+    prompt: "Analyze the fintech startup market, identify three promising segments, estimate key financial metrics, and produce a concise investment-style report.",
+  },
+  {
+    title: "Competitor comparison",
+    prompt: "Compare the three leading project-management tools for small teams on pricing, strengths and weaknesses, and who each is best for.",
+  },
+  {
+    title: "Go-to-market plan",
+    prompt: "Draft a go-to-market plan for a B2B analytics SaaS product: target segments, channels, pricing approach, and 90-day milestones.",
+  },
+];
 
-function useElapsedSeconds(active: boolean) {
+const ACTIVE_STATUSES = new Set(["CREATED", "PLANNING", "IN_PROGRESS", "AWAITING_QA"]);
+
+// Seconds since the task was created - measured from its real start time, so
+// reopening a task that is still running shows the true elapsed time.
+function useElapsedSeconds(active: boolean, startedAt: string | undefined) {
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
-    if (!active) {
+    if (!active || !startedAt) {
       setSeconds(0);
       return;
     }
-    const start = Date.now();
-    const interval = setInterval(() => setSeconds(Math.floor((Date.now() - start) / 1000)), 1000);
+    const start = new Date(startedAt).getTime();
+    const tick = () => setSeconds(Math.max(0, Math.floor((Date.now() - start) / 1000)));
+    tick();
+    const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);
-  }, [active]);
+  }, [active, startedAt]);
   return seconds;
 }
 
@@ -53,6 +65,12 @@ export function Dashboard() {
   const [agents, setAgents] = useState<AgentRecord[]>([]);
   const [taskId, setTaskId] = useState<string | null>(null);
   const [task, setTask] = useState<TaskRecord | null>(null);
+
+  // Opens the task named by a shared ?task=<id> link (see Sidebar's "Share").
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("task");
+    if (id) setTaskId(id);
+  }, []);
   const [ledger, setLedger] = useState<CentralLedgerRecord[]>([]);
   const [historicalEvents, setHistoricalEvents] = useState<KravenEvent[]>([]);
   const [paymentIntents, setPaymentIntents] = useState<any[]>([]);
@@ -60,58 +78,21 @@ export function Dashboard() {
   const [blockchainWorkflowEvents, setBlockchainWorkflowEvents] = useState<any[]>([]);
   const [algorandTransactions, setAlgorandTransactions] = useState<AlgorandLedgerTransactionRecord[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEventRecord[]>([]);
-  const [reportOpen, setReportOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(true);
-  const [economyOpen, setEconomyOpen] = useState(true);
+  // Layout. The sidebar is a column on desktop (collapsible) and an overlay on
+  // small screens; the run-details drawer is closed until asked for.
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [budget, setBudget] = useState(30);
+  const [qualityThreshold, setQualityThreshold] = useState(70);
+  const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
 
-  // On narrow viewports the two side panels are full-width, so only one may
-  // be open at a time or they visually stack on top of each other. On wider
-  // viewports both can stay open simultaneously as originally designed.
-  function handleActivityOpenChange(next: boolean) {
-    setActivityOpen(next);
-    if (next && typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
-      setEconomyOpen(false);
-    }
-  }
-  function handleEconomyOpenChange(next: boolean) {
-    setEconomyOpen(next);
-    if (next && typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
-      setActivityOpen(false);
-    }
-  }
-
-  // Both panels default to open (desktop has room for both side by side),
-  // but on a narrow viewport they'd fully overlap — collapse Economy on
-  // mount there so the initial view isn't obscured.
+  // The workspace uses its own flat palette (see .workspace in globals.css).
+  // It is applied to <body> so portaled menus, tooltips and dialogs match.
   useEffect(() => {
-    if (window.matchMedia("(max-width: 639px)").matches) {
-      setEconomyOpen(false);
-    }
-  }, []);
-
-  // Block native page-zoom everywhere (not just over the canvas): Safari's
-  // trackpad pinch fires non-standard gesture events instead of wheel, and
-  // ctrl+wheel (trackpad pinch on Chrome/Firefox) can also reach the page
-  // outside the canvas, over the side panels or chat bar.
-  useEffect(() => {
-    function preventGesture(e: Event) {
-      e.preventDefault();
-    }
-    function preventCtrlWheel(e: WheelEvent) {
-      if (e.ctrlKey) e.preventDefault();
-    }
-    document.addEventListener("gesturestart", preventGesture, { passive: false });
-    document.addEventListener("gesturechange", preventGesture, { passive: false });
-    document.addEventListener("gestureend", preventGesture, { passive: false });
-    document.addEventListener("wheel", preventCtrlWheel, { passive: false });
-    return () => {
-      document.removeEventListener("gesturestart", preventGesture);
-      document.removeEventListener("gesturechange", preventGesture);
-      document.removeEventListener("gestureend", preventGesture);
-      document.removeEventListener("wheel", preventCtrlWheel);
-    };
+    document.body.classList.add("workspace");
+    return () => document.body.classList.remove("workspace");
   }, []);
 
   async function refreshAgents() {
@@ -130,7 +111,7 @@ export function Dashboard() {
       const data = await res.json();
       if (res.ok) setTask(data.task);
     } catch {
-      toast.error("Lost connection while checking task status — retrying shortly.");
+      toast.error("Lost connection while checking task status - retrying shortly.");
     }
   }
 
@@ -145,11 +126,11 @@ export function Dashboard() {
       setAlgorandTransactions(data.algorandTransactions ?? []);
       setSecurityEvents(data.securityEvents ?? []);
     } catch {
-      // non-critical panel — fail silently, the next poll will retry
+      // non-critical panel - fail silently, the next poll will retry
     }
   }
 
-  // Backfills the activity feed with a task's persisted events — needed when
+  // Backfills the activity feed with a task's persisted events - needed when
   // reopening a past chat, since the live SSE buffer only holds events seen
   // during the current browser session.
   async function refreshHistoricalEvents(id: string) {
@@ -158,12 +139,13 @@ export function Dashboard() {
       const data = await res.json();
       setHistoricalEvents(data.events ?? []);
     } catch {
-      // non-critical — the live stream still covers anything from here on
+      // non-critical - the live stream still covers anything from here on
     }
   }
 
   function handleSelectFromHistory(id: string) {
     setTaskId(id);
+    setMobileSidebarOpen(false);
   }
 
   useEffect(() => {
@@ -175,7 +157,7 @@ export function Dashboard() {
   }, [marketplaceOpen]);
 
   // Refresh task/ledger snapshots whenever a relevant event lands for the
-  // currently-selected task — the SSE stream tells us WHEN to refetch, the
+  // currently-selected task - the SSE stream tells us WHEN to refetch, the
   // REST endpoints remain the source of truth for full record shape.
   useEffect(() => {
     if (!taskId) return;
@@ -197,12 +179,6 @@ export function Dashboard() {
     return () => clearInterval(interval);
   }, [taskId]);
 
-  useEffect(() => {
-    if (task && TERMINAL_STATUSES.has(task.status) && task.finalOutput) {
-      setReportOpen(true);
-    }
-  }, [task?.status, task?.finalOutput]);
-
   const taskEvents = useMemo(() => {
     const live = events.filter((e) => e.taskId === taskId);
     const merged = [...historicalEvents, ...live];
@@ -212,7 +188,7 @@ export function Dashboard() {
   }, [events, historicalEvents, taskId]);
 
   // Surfaces the Manager's real "I've seen something like this before" signal
-  // (lib/manager/workflowMemory.ts) — the orchestrator emits this once, at
+  // (lib/manager/workflowMemory.ts) - the orchestrator emits this once, at
   // planning time, only when a genuinely similar past successful workflow
   // was found. Never fabricated: absent unless that lookup actually matched.
   const memoryRecall = useMemo(() => {
@@ -231,7 +207,7 @@ export function Dashboard() {
   }, [taskEvents]);
 
   const isRunning = task ? ACTIVE_STATUSES.has(task.status) : false;
-  const elapsedSeconds = useElapsedSeconds(isRunning);
+  const elapsedSeconds = useElapsedSeconds(isRunning, task?.createdAt);
 
   async function handleCancel() {
     if (!taskId) return;
@@ -247,15 +223,20 @@ export function Dashboard() {
   }
 
   // Starts a fresh chat by clearing only the client's current-task view state.
-  // This does NOT call /api/reset and does NOT touch the database — past
+  // This does NOT call /api/reset and does NOT touch the database - past
   // tasks, ledger entries, events, and workflow memory all remain intact and
   // browsable from the History panel.
-  function handleNewChat() {
+  function handleCreated(id: string) {
+    setPrefill(null);
+    setTaskId(id);
+  }
+
+  function handleNewTask() {
     setTaskId(null);
     setTask(null);
     setLedger([]);
     setHistoricalEvents([]);
-    setReportOpen(false);
+    setMobileSidebarOpen(false);
     setPaymentIntents([]);
     setBlockchainTransactions([]);
     setBlockchainWorkflowEvents([]);
@@ -264,66 +245,173 @@ export function Dashboard() {
   }
 
   if (!authorized) {
-    return <div className="fixed inset-0 bg-canvas" />;
+    return <div className="fixed inset-0 bg-background" />;
   }
 
-  return (
-    <div className="fixed inset-0 bg-canvas">
-      {/* Full-screen workflow canvas */}
-      <div className="absolute inset-0">
-        <WorkflowPanel
-          subtasks={task?.subtasks ?? []}
-          isPlanning={task?.status === "CREATED" || task?.status === "PLANNING"}
-          memoryRecall={memoryRecall}
-          events={taskEvents}
-        />
-      </div>
+  const hasTask = taskId !== null;
+  const title = task?.prompt ?? "";
 
-      {/* Floating top bar */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-center gap-3 p-3 sm:p-4">
-        <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 rounded-md border border-panel-border bg-panel p-1 shadow-lg backdrop-blur-xl transition-colors">
-          {task?.finalOutput && (
-            <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)} className="text-panel-foreground hover:bg-panel-elevated">
-              <FileText className="size-3.5" /> <span className="hidden sm:inline">Report</span>
-            </Button>
+  return (
+    <div className="fixed inset-0 flex bg-background text-foreground">
+      {/* Backdrop for the overlay panels on small screens */}
+      {(mobileSidebarOpen || detailsOpen) && (
+        <button
+          type="button"
+          aria-label="Close panel"
+          onClick={() => {
+            setMobileSidebarOpen(false);
+            setDetailsOpen(false);
+          }}
+          className="animate-in fade-in fixed inset-0 z-30 bg-black/50 duration-200 lg:hidden"
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 w-68 shrink-0 overflow-hidden border-r border-sidebar-border transition-[transform,width,border-color] duration-200 lg:static lg:z-auto lg:translate-x-0",
+          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full",
+          desktopSidebarCollapsed && "lg:w-0 lg:border-transparent",
+        )}
+      >
+        <Sidebar
+          activeTaskId={taskId}
+          refreshKey={`${taskId ?? "none"}:${task?.status ?? ""}`}
+          onSelect={handleSelectFromHistory}
+          onNewTask={handleNewTask}
+          onOpenAgents={() => {
+            setMarketplaceOpen(true);
+            setMobileSidebarOpen(false);
+          }}
+          onClose={() => {
+            setMobileSidebarOpen(false);
+            setDesktopSidebarCollapsed(true);
+          }}
+        />
+      </aside>
+
+      {/* Conversation */}
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-2 px-3 sm:px-4">
+          <button
+            type="button"
+            onClick={() => {
+              setMobileSidebarOpen(true);
+              setDesktopSidebarCollapsed(false);
+            }}
+            aria-label="Open sidebar"
+            title="Open sidebar"
+            className={cn(
+              "flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+              !desktopSidebarCollapsed && "lg:hidden",
+            )}
+          >
+            <PanelLeftOpen className="size-4.5" />
+          </button>
+          <div className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={title}>
+            {title}
+          </div>
+          {isRunning && (
+            <span className="animate-in fade-in zoom-in-95 flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground duration-200">
+              <Loader2 className="size-3 animate-spin" />
+              Working · {elapsedSeconds}s
+            </span>
           )}
-          <Button variant="ghost" size="sm" onClick={() => setHistoryOpen(true)} className="text-panel-foreground hover:bg-panel-elevated">
-            <History className="size-3.5" /> <span className="hidden sm:inline">History</span>
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setMarketplaceOpen(true)} className="text-panel-foreground hover:bg-panel-elevated">
-            <Store className="size-3.5" /> <span className="hidden sm:inline">Marketplace</span>
-          </Button>
-          <RogueDemoButton key={taskId ?? "none"} taskId={taskId} />
-          <Button variant="ghost" size="sm" onClick={handleNewChat} className="text-panel-foreground hover:bg-panel-elevated">
-            <RotateCcw className="size-3.5" /> <span className="hidden sm:inline">New chat</span>
-          </Button>
-          <ThemeToggle />
-          {firebaseConfigured && (
-            <>
-              <Separator orientation="vertical" className="h-5 bg-panel-border" />
-              <UserMenu />
-            </>
+          {hasTask && (
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((o) => !o)}
+              aria-pressed={detailsOpen}
+              className={cn(
+                "flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                detailsOpen && "bg-muted text-foreground",
+              )}
+            >
+              <PanelRight className="size-4" />
+              <span className="hidden sm:inline">Run details</span>
+            </button>
+          )}
+        </header>
+
+        <div data-thread-scroller className="min-h-0 flex-1 overflow-y-auto">
+          {!hasTask ? (
+            <div className="animate-in fade-in mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center px-4 pb-16 pt-4 duration-300">
+              <h1 className="mb-8 text-center text-3xl font-semibold tracking-tight sm:text-[2rem]">What should your AI workforce accomplish?</h1>
+              <div className="w-full">
+                <Composer
+                  onCreated={handleCreated}
+                  isRunning={isRunning}
+                  onCancel={handleCancel}
+                  budget={budget}
+                  onBudgetChange={setBudget}
+                  qualityThreshold={qualityThreshold}
+                  onQualityThresholdChange={setQualityThreshold}
+                  prefill={prefill}
+                  autoFocus
+                />
+              </div>
+              <p className="mt-3 max-w-xl text-center text-xs leading-relaxed text-muted-foreground">
+                Kraven hires the right agents for your task within your budget, checks every result, and only pays for work that passes review.
+              </p>
+              <div className="mt-8 grid w-full gap-2.5 sm:grid-cols-3">
+                {EXAMPLES.map((example) => (
+                  <button
+                    key={example.title}
+                    type="button"
+                    onClick={() => setPrefill({ text: example.prompt, nonce: Date.now() })}
+                    className="rounded-2xl border border-border px-4 py-3 text-left transition-colors hover:bg-muted"
+                  >
+                    <div className="text-sm font-medium">{example.title}</div>
+                    <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{example.prompt}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : task ? (
+            <RunThread key={task.id} task={task} events={taskEvents} elapsedSeconds={elapsedSeconds} memoryRecall={memoryRecall} />
+          ) : (
+            <div className="animate-in fade-in mx-auto flex max-w-3xl items-center gap-2 px-6 py-10 text-sm text-muted-foreground duration-300">
+              <Loader2 className="size-4 animate-spin" /> Loading task…
+            </div>
           )}
         </div>
-      </header>
 
-      <ActivityFeed events={taskEvents} open={activityOpen} onOpenChange={handleActivityOpenChange} />
-      <EconomyPanel
-        task={task}
-        ledger={ledger}
-        paymentIntents={paymentIntents}
-        blockchainTransactions={blockchainTransactions}
-        blockchainWorkflowEvents={blockchainWorkflowEvents}
-        algorandTransactions={algorandTransactions}
-        securityEvents={securityEvents}
-        open={economyOpen}
-        onOpenChange={handleEconomyOpenChange}
-      />
+        {hasTask && (
+          <div className="shrink-0 px-4 pb-4 pt-2">
+            <div className="mx-auto w-full max-w-3xl">
+              <Composer
+                onCreated={handleCreated}
+                isRunning={isRunning}
+                onCancel={handleCancel}
+                budget={budget}
+                onBudgetChange={setBudget}
+                qualityThreshold={qualityThreshold}
+                onQualityThresholdChange={setQualityThreshold}
+              />
+            </div>
+          </div>
+        )}
+      </main>
 
-      <FloatingChatBar onCreated={setTaskId} disabled={isRunning} isRunning={isRunning} elapsedSeconds={elapsedSeconds} onCancel={handleCancel} />
+      {/* Run details */}
+      {/* Mounted only while open so the workflow graph measures a real container. */}
+      {hasTask && detailsOpen && (
+        <aside className="animate-in slide-in-from-right-4 fade-in fixed inset-y-0 right-0 z-40 w-[min(26rem,100vw)] shrink-0 border-l border-border duration-200 lg:static lg:z-auto lg:w-104">
+          <DetailsDrawer
+            task={task}
+            events={taskEvents}
+            ledger={ledger}
+            paymentIntents={paymentIntents}
+            blockchainTransactions={blockchainTransactions}
+            blockchainWorkflowEvents={blockchainWorkflowEvents}
+            algorandTransactions={algorandTransactions}
+            securityEvents={securityEvents}
+            memoryRecall={memoryRecall}
+            onClose={() => setDetailsOpen(false)}
+          />
+        </aside>
+      )}
 
-      <FinalOutputPanel task={task} open={reportOpen} onOpenChange={setReportOpen} />
-      <ChatHistoryPanel open={historyOpen} onOpenChange={setHistoryOpen} activeTaskId={taskId} onSelect={handleSelectFromHistory} />
       <MarketplacePanel agents={agents} open={marketplaceOpen} onOpenChange={setMarketplaceOpen} />
     </div>
   );

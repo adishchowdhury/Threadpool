@@ -14,6 +14,14 @@ export function ScrambleText({
 }) {
   const [display, setDisplay] = useState(text);
   const frame = useRef(0);
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState<number>();
+
+  // Locks the box to the final text's measured width so random scramble
+  // glyphs (which can be wider than the real characters) never resize it.
+  useEffect(() => {
+    if (measureRef.current) setWidth(measureRef.current.offsetWidth);
+  }, [text]);
 
   useEffect(() => {
     if (!active) {
@@ -22,8 +30,7 @@ export function ScrambleText({
       return;
     }
 
-    let raf: ReturnType<typeof setInterval>;
-    raf = setInterval(() => {
+    const raf = setInterval(() => {
       frame.current += 1;
       const revealCount = Math.floor(frame.current / 2);
       setDisplay(
@@ -43,12 +50,11 @@ export function ScrambleText({
   }, [active, text]);
 
   return (
-    <span className="relative inline-grid">
-      {/* Reserves the final text's box size so scrambled glyphs never shift layout. */}
-      <span className="invisible col-start-1 row-start-1" aria-hidden="true">
+    <span className="relative inline-block align-top" style={{ width }}>
+      <span ref={measureRef} className="invisible whitespace-nowrap" aria-hidden="true">
         {text}
       </span>
-      <span className="col-start-1 row-start-1">{display}</span>
+      <span className="absolute inset-0 overflow-hidden whitespace-nowrap">{display}</span>
     </span>
   );
 }

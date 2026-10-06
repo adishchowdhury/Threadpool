@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-// SSE stream — the frontend's single source of truth for live state. It
+// SSE stream - the frontend's single source of truth for live state. It
 // never guesses; it renders purely off events emitted here.
 export async function GET(request: Request) {
   const encoder = new TextEncoder();

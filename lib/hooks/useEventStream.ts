@@ -12,7 +12,7 @@ export interface KravenEvent {
 }
 
 // Connects once to /api/events and keeps a rolling buffer of everything the
-// backend has emitted. Consumers filter by taskId themselves — the frontend
+// backend has emitted. Consumers filter by taskId themselves - the frontend
 // never guesses state, it only renders what the stream said happened.
 export function useEventStream(maxEvents = 500) {
   const [events, setEvents] = useState<KravenEvent[]>([]);

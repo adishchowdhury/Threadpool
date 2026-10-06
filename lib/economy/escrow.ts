@@ -1,24 +1,25 @@
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import { writeLedgerPair } from "@/lib/economy/ledger";
 import { evaluateTransaction, isSevereViolation } from "@/lib/economy/circuitBreaker";
 import { managerWalletId, escrowWalletId } from "@/lib/economy/wallets";
 import { generateMockAlgorandAddress } from "@/lib/blockchain/algorand";
 import * as algo from "@/lib/blockchain/algorand";
 import { emitEvent } from "@/lib/events/emit";
-import type { Prisma, TxType } from "@/app/generated/prisma/client";
+import type { DbClient } from "@/lib/db/client";
+import type { TxType } from "@/lib/db/types";
 
 // Mirrors a just-written internal ledger transfer onto Algorand testnet so
 // every wallet-to-wallet payment (escrow lock, agent payout, refund) has a
 // corresponding on-chain transaction. Never blocks or reverses the internal
-// transfer — a mirror failure is logged and swallowed, since the ledger is
+// transfer - a mirror failure is logged and swallowed, since the ledger is
 // the source of truth per CLAUDE.md.
 //
-// Deliberately called with the plain `prisma` client AFTER the enclosing
+// Deliberately called with the plain `db` client AFTER the enclosing
 // db.$transaction has committed, never with its TransactionClient: a real
 // on-chain submission waits several seconds for confirmation, which would
 // hold the financial transaction's row locks open for far too long.
 async function mirrorLedgerToAlgorand(
-  db: Prisma.TransactionClient,
+  db: DbClient,
   params: {
     taskId: string;
     centralLedgerId: string;
@@ -65,14 +66,14 @@ async function mirrorLedgerToAlgorand(
   }
 }
 
-async function getOrCreateCentralEscrow(db: Prisma.TransactionClient, taskId: string) {
+async function getOrCreateCentralEscrow(db: DbClient, taskId: string) {
   const existing = await db.centralEscrow.findUnique({ where: { taskId } });
   if (existing) return existing;
   return db.centralEscrow.create({ data: { taskId, totalLocked: 0, totalReleased: 0, totalRefunded: 0 } });
 }
 
 async function recordBlocked(
-  db: Prisma.TransactionClient,
+  db: DbClient,
   params: {
     taskId: string;
     agentId: string;
@@ -142,11 +143,11 @@ export async function lockAgentEscrow(params: {
   amount: number;
   purpose: string;
 }) {
-  return prisma.$transaction(async (db) => {
-    const [task, agent] = await Promise.all([
-      db.task.findUniqueOrThrow({ where: { id: params.taskId } }),
-      db.agent.findUniqueOrThrow({ where: { id: params.agentId } }),
-    ]);
+  return db.$transaction(async (db) => {
+    // Sequential on purpose: MongoDB sessions don't support parallel
+    // operations inside one transaction.
+    const task = await db.task.findUniqueOrThrow({ where: { id: params.taskId } });
+    const agent = await db.agent.findUniqueOrThrow({ where: { id: params.agentId } });
 
     const decision = evaluateTransaction({
       amount: params.amount,
@@ -214,7 +215,7 @@ export async function lockAgentEscrow(params: {
     return { blocked: false as const, agentEscrow, lockLedgerId: lockLedger.id };
   }).then(async (result) => {
     if (!result.blocked) {
-      await mirrorLedgerToAlgorand(prisma, {
+      await mirrorLedgerToAlgorand(db, {
         taskId: params.taskId,
         centralLedgerId: result.lockLedgerId,
         fromWalletId: managerWalletId(),
@@ -228,7 +229,7 @@ export async function lockAgentEscrow(params: {
   });
 }
 
-// Releases a locked escrow to the agent's wallet — ONLY call after QA has
+// Releases a locked escrow to the agent's wallet - ONLY call after QA has
 // passed. `requestedAmount` is separate from the escrow's locked amount so a
 // rogue/inflated payout request can be modeled and blocked realistically;
 // legitimate callers always pass the exact locked amount.
@@ -237,12 +238,10 @@ export async function releaseAgentEscrow(params: {
   requestedAmount: number;
   purpose: string;
 }) {
-  return prisma.$transaction(async (db) => {
+  return db.$transaction(async (db) => {
     const agentEscrow = await db.agentEscrow.findUniqueOrThrow({ where: { id: params.agentEscrowId } });
-    const [task, agent] = await Promise.all([
-      db.task.findUniqueOrThrow({ where: { id: agentEscrow.taskId } }),
-      db.agent.findUniqueOrThrow({ where: { id: agentEscrow.agentId } }),
-    ]);
+    const task = await db.task.findUniqueOrThrow({ where: { id: agentEscrow.taskId } });
+    const agent = await db.agent.findUniqueOrThrow({ where: { id: agentEscrow.agentId } });
     const agentWallet = await db.wallet.upsert({
       where: { agentId: agent.id },
       update: {},
@@ -298,10 +297,16 @@ export async function releaseAgentEscrow(params: {
       return { blocked: true as const, reason: decision.reason, revoked };
     }
 
+    // Atomic claim before any balance moves - an escrow can be settled once
+    // (released OR refunded), even when two operations race without
+    // transaction isolation. See refundAgentEscrow.
+    const claim = await db.agentEscrow.updateMany({ where: { id: agentEscrow.id, status: "LOCKED" }, data: { status: "RELEASED" } });
+    if (claim.count === 0) {
+      return { blocked: true as const, reason: "escrow already settled by a concurrent operation", revoked: false };
+    }
+
     await db.wallet.update({ where: { id: escrowWalletId() }, data: { balance: { decrement: params.requestedAmount } } });
     await db.wallet.update({ where: { id: agentWallet.id }, data: { balance: { increment: params.requestedAmount } } });
-
-    await db.agentEscrow.update({ where: { id: agentEscrow.id }, data: { status: "RELEASED" } });
 
     const central = await getOrCreateCentralEscrow(db, task.id);
     await db.centralEscrow.update({
@@ -332,7 +337,7 @@ export async function releaseAgentEscrow(params: {
     return { blocked: false as const, agentWallet, payoutLedgerId: payoutLedger.id, taskId: task.id };
   }).then(async (result) => {
     if (!result.blocked) {
-      await mirrorLedgerToAlgorand(prisma, {
+      await mirrorLedgerToAlgorand(db, {
         taskId: result.taskId,
         centralLedgerId: result.payoutLedgerId,
         fromWalletId: escrowWalletId(),
@@ -346,20 +351,28 @@ export async function releaseAgentEscrow(params: {
   });
 }
 
-// Returns locked funds to the manager wallet — used on cancellation or when
+// Returns locked funds to the manager wallet - used on cancellation or when
 // a subtask is permanently terminated after exhausting retries.
 export async function refundAgentEscrow(params: { agentEscrowId: string; reason: string }) {
-  return prisma.$transaction(async (db) => {
+  return db.$transaction(async (db) => {
     const agentEscrow = await db.agentEscrow.findUniqueOrThrow({ where: { id: params.agentEscrowId } });
     if (agentEscrow.status !== "LOCKED") {
       return { refunded: false as const, reason: `escrow already ${agentEscrow.status.toLowerCase()}` };
     }
 
+    // Claim the escrow with an atomic compare-and-set BEFORE moving money.
+    // The status check above is only a fast path: without replica-set
+    // transactions two concurrent callers (e.g. a double-clicked cancel) both
+    // saw LOCKED and refunded twice. Only the caller whose conditional update
+    // matches may proceed.
+    const claim = await db.agentEscrow.updateMany({ where: { id: agentEscrow.id, status: "LOCKED" }, data: { status: "REFUNDED" } });
+    if (claim.count === 0) {
+      return { refunded: false as const, reason: "escrow already settled by a concurrent operation" };
+    }
+
     await db.wallet.update({ where: { id: escrowWalletId() }, data: { balance: { decrement: agentEscrow.amount } } });
     await db.wallet.update({ where: { id: managerWalletId() }, data: { balance: { increment: agentEscrow.amount } } });
     await db.task.update({ where: { id: agentEscrow.taskId }, data: { remainingBudget: { increment: agentEscrow.amount } } });
-
-    await db.agentEscrow.update({ where: { id: agentEscrow.id }, data: { status: "REFUNDED" } });
 
     const central = await getOrCreateCentralEscrow(db, agentEscrow.taskId);
     await db.centralEscrow.update({
@@ -391,7 +404,7 @@ export async function refundAgentEscrow(params: { agentEscrowId: string; reason:
     return { refunded: true as const, refundLedgerId: refundLedger.id, taskId: agentEscrow.taskId, amount: agentEscrow.amount };
   }).then(async (result) => {
     if (result.refunded) {
-      await mirrorLedgerToAlgorand(prisma, {
+      await mirrorLedgerToAlgorand(db, {
         taskId: result.taskId,
         centralLedgerId: result.refundLedgerId,
         fromWalletId: escrowWalletId(),

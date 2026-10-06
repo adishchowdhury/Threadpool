@@ -13,30 +13,53 @@ import {
   History,
   ArrowRight,
   ArrowDown,
+  ClipboardList,
+  Sparkles,
+  SlidersHorizontal,
+  Play,
+  ShieldCheck,
+  Wallet,
+  Users,
+  LayoutGrid,
+  Tags,
 } from "lucide-react";
 import { ScaleDivider, VerticalScaleBars } from "./ScaleDivider";
-import { ScratchBox, CornerMarks } from "./PencilScratch";
+import { HeroSimulation } from "./HeroSimulation";
 import { ScrambleText, useHoverScramble } from "./ScrambleText";
 import { LoginDialog } from "@/components/auth/login-dialog";
 import { firebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/lib/use-auth-user";
+import { ROSTER } from "@/lib/agents/roster";
+import { CAPABILITY_IDS, CAPABILITY_CATALOG } from "@/lib/capabilities/catalog";
 
 const PIPELINE_STEPS = [
-  "TASK",
-  "MANAGER",
-  "DISCOVER",
-  "RANK",
-  "ESCROW",
-  "EXECUTE",
-  "QA",
-  "PAY",
+  { label: "Task", desc: "Objective + budget", icon: ClipboardList },
+  { label: "Manager", desc: "Gemini decomposes it", icon: Sparkles },
+  { label: "Discover", desc: "Search the marketplace", icon: Search },
+  { label: "Rank", desc: "Score every candidate", icon: SlidersHorizontal },
+  { label: "Escrow", desc: "Lock the budget", icon: Lock },
+  { label: "Execute", desc: "Agents do the work", icon: Play },
+  { label: "QA", desc: "Independent review", icon: ShieldCheck },
+  { label: "Pay", desc: "Release on approval", icon: Wallet },
 ];
+
+const WORKFORCE_STATS = [
+  { value: ROSTER.length, label: "Agents live in the registry", icon: Users },
+  { value: CAPABILITY_IDS.length, label: "Capability areas covered", icon: LayoutGrid },
+  {
+    value: new Set(ROSTER.map((a) => a.tier)).size,
+    label: "Pricing tiers per capability",
+    icon: Tags,
+  },
+];
+
+const CAPABILITY_CHIPS = CAPABILITY_IDS.map((id) => CAPABILITY_CATALOG[id].label);
 
 const FEATURES = [
   {
     icon: Workflow,
     title: "Task understanding",
-    desc: "Gemini decomposes an objective and budget into required capabilities and a subtask dependency graph — never freeform guesswork.",
+    desc: "Sarvam decomposes an objective and budget into required capabilities and a subtask dependency graph - never freeform guesswork.",
   },
   {
     icon: Search,
@@ -131,29 +154,33 @@ export function HomePage() {
 
       {/* ─── HERO ─── */}
       <section className="relative overflow-hidden">
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.5]"
-          style={{
-            backgroundImage:
-              "linear-gradient(to right, oklch(0.93 0 0) 1px, transparent 1px), linear-gradient(to bottom, oklch(0.93 0 0) 1px, transparent 1px)",
-            backgroundSize: "48px 48px",
-            maskImage: "linear-gradient(to bottom, black, transparent 85%)",
-          }}
-        />
         <div className="relative mx-auto max-w-6xl px-4 pt-14 pb-16 sm:px-6 sm:pt-20 sm:pb-24 lg:pt-24">
-          <div className="mx-auto max-w-4xl text-center">
-            <h1 className="text-balance text-[28px] font-semibold leading-relaxed tracking-[-0.02em] text-neutral-900 sm:text-4xl md:text-[2.75rem] xl:whitespace-nowrap xl:text-5xl xl:leading-[1.1] xl:tracking-[-0.03em]">
-              <span className="relative isolate inline-block px-2.5 py-1 sm:px-3">
-                <ScratchBox className="pointer-events-none absolute -inset-x-2 -inset-y-1 z-[-1] h-[calc(100%+0.5rem)] w-[calc(100%+1rem)] text-neutral-500" />
-                Give your agents a budget.
-              </span>{" "}
-              <span className="relative inline-block rounded-[3px] bg-neutral-800 px-2.5 py-1 text-white shadow-[3px_3px_0_0_rgba(0,0,0,0.08)] sm:px-3">
-                <CornerMarks className="text-neutral-800/80" />
-                Not a blank check.
+          <div className="flex flex-col items-start gap-8 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+            <h1 className="max-w-2xl text-left text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
+              Give your agents a{" "}
+              <span className="relative inline-block whitespace-nowrap">
+                <span
+                  aria-hidden
+                  className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] -rotate-1 bg-amber-300/80"
+                />
+                <span className="font-(family-name:--font-cursive) text-[1.2em] font-semibold tracking-normal">
+                  budget
+                </span>
+              </span>
+              <br />
+              Not a{" "}
+              <span className="relative inline-block whitespace-nowrap">
+                <span
+                  aria-hidden
+                  className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] rotate-1 bg-amber-300/80"
+                />
+                <span className="font-(family-name:--font-cursive) text-[1.2em] font-semibold tracking-normal">
+                  blank check
+                </span>
               </span>
             </h1>
 
-            <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:mt-8 sm:flex-row sm:flex-wrap">
+            <div className="flex w-full flex-col items-start gap-3 sm:w-auto sm:shrink-0 sm:flex-row sm:flex-wrap sm:items-center">
               <Link
                 href="/dashboard"
                 onClick={handleLaunch}
@@ -176,25 +203,8 @@ export function HomePage() {
             </div>
           </div>
 
-          {/* Real dashboard preview */}
-          <div className="relative mt-10 overflow-hidden rounded-xl p-0.5 sm:mt-14 sm:rounded-2xl">
-            <div
-              className="absolute inset-[-150%] animate-[spin_2.5s_linear_infinite]"
-              style={{
-                background:
-                  "conic-gradient(from 0deg, oklch(0.15 0 0), oklch(0.95 0 0), oklch(0.15 0 0), oklch(0.95 0 0))",
-              }}
-            />
-            <div className="relative overflow-hidden rounded-[calc(0.75rem-2px)] bg-white sm:rounded-[calc(1rem-2px)]">
-              <Image
-                src="/screenshots/dashboard-preview-2.png"
-                alt="Kraven console — live activity feed, workforce graph, and economy ledger"
-                width={1918}
-                height={906}
-                className="block w-full"
-                priority
-              />
-            </div>
+          <div className="mt-12 sm:mt-16">
+            <HeroSimulation />
           </div>
         </div>
       </section>
@@ -205,7 +215,7 @@ export function HomePage() {
       <section id="pipeline" className="py-20">
         <div className="mx-auto max-w-6xl px-6">
           <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
-            01 — Pipeline
+            01 - Pipeline
           </p>
           <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
             One task. A governed pipeline.
@@ -215,24 +225,51 @@ export function HomePage() {
             discovered, scored, and enforced at run time.
           </p>
 
-          <div className="mt-12 flex flex-wrap items-stretch gap-y-4">
-            {PIPELINE_STEPS.map((step, i) => (
-              <div key={step} className="flex items-stretch">
-                <div className="flex min-w-[7.5rem] flex-col items-center justify-center border border-neutral-300 px-4 py-5 text-center">
-                  <span className="font-mono text-[11px] text-neutral-400">
+          {/* mobile / tablet: vertical timeline */}
+          <ol className="mt-12 lg:hidden">
+            {PIPELINE_STEPS.map((step, i) => {
+              const Icon = step.icon;
+              const isLast = i === PIPELINE_STEPS.length - 1;
+              return (
+                <li key={step.label} className="relative flex gap-4 pb-8 last:pb-0">
+                  {!isLast && (
+                    <span className="absolute top-11 bottom-0 left-5.25 w-px bg-neutral-200" aria-hidden />
+                  )}
+                  <div className="relative z-10 flex size-11 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-700 shadow-sm">
+                    <Icon className="size-4.5" />
+                  </div>
+                  <div className="pt-1.5">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-[11px] text-neutral-400">
+                        {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <span className="text-[15px] font-semibold text-neutral-900">{step.label}</span>
+                    </div>
+                    <p className="mt-0.5 text-[13px] text-neutral-500">{step.desc}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+
+          {/* desktop: horizontal stepper */}
+          <div className="relative mt-14 hidden lg:grid lg:grid-cols-8">
+            <div className="absolute inset-x-0 top-6 h-px bg-neutral-200" aria-hidden />
+            {PIPELINE_STEPS.map((step, i) => {
+              const Icon = step.icon;
+              return (
+                <div key={step.label} className="relative flex flex-col items-center px-2 text-center">
+                  <div className="relative z-10 flex size-12 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-700 shadow-sm">
+                    <Icon className="size-5" />
+                  </div>
+                  <span className="mt-3 font-mono text-[10.5px] text-neutral-400">
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <span className="mt-1 font-mono text-[13px] font-semibold tracking-tight text-neutral-900">
-                    {step}
-                  </span>
+                  <span className="mt-0.5 text-[13.5px] font-semibold text-neutral-900">{step.label}</span>
+                  <span className="mt-0.5 text-[11.5px] text-neutral-400">{step.desc}</span>
                 </div>
-                {i < PIPELINE_STEPS.length - 1 && (
-                  <div className="flex w-8 items-center justify-center text-neutral-300">
-                    <ArrowRight className="size-4" />
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -243,11 +280,35 @@ export function HomePage() {
       <section id="capabilities" className="py-20">
         <div className="mx-auto max-w-6xl px-6">
           <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
-            02 — Capabilities
+            02 - Capabilities
           </p>
           <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
             Built for governed autonomy.
           </h2>
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+            For anyone who needs an AI task finished inside a hard budget -
+            founders scoping a report, ops teams capping agent spend,
+            reviewers auditing the chain of custody.
+          </p>
+
+          <div className="mt-10 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+            {WORKFORCE_STATS.map((stat) => (
+              <div key={stat.label} className="flex items-start gap-4 bg-white px-6 py-6">
+                <stat.icon
+                  className="mt-0.5 size-5 shrink-0 text-neutral-400"
+                  strokeWidth={1.75}
+                />
+                <div>
+                  <p className="font-mono text-2xl font-semibold text-neutral-900 sm:text-3xl">
+                    {stat.value}
+                  </p>
+                  <p className="mt-1 text-[12.5px] leading-snug text-neutral-500">
+                    {stat.label}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="mx-auto mt-12 max-w-6xl border border-neutral-200">
@@ -260,11 +321,16 @@ export function HomePage() {
               ].join(" ")}
             >
               {row.map((f) => (
-                <div key={f.title} className="group p-7">
-                  <f.icon
-                    className="size-5 text-neutral-900 transition-transform duration-300 ease-out group-hover:-translate-y-0.5 group-hover:scale-110 group-hover:rotate-6"
-                    strokeWidth={1.75}
-                  />
+                <div
+                  key={f.title}
+                  className="group p-7 transition-colors duration-200 hover:bg-neutral-50"
+                >
+                  <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white transition-colors duration-200 group-hover:border-neutral-900">
+                    <f.icon
+                      className="size-4.5 text-neutral-900 transition-transform duration-300 ease-out group-hover:-translate-y-0.5 group-hover:scale-110 group-hover:rotate-6"
+                      strokeWidth={1.75}
+                    />
+                  </div>
                   <h3 className="mt-4 text-[15px] font-semibold text-neutral-900">
                     {f.title}
                   </h3>
@@ -276,6 +342,29 @@ export function HomePage() {
             </div>
           ))}
         </div>
+
+        <div className="mx-auto mt-10 max-w-6xl px-6">
+          <div className="border border-neutral-200 bg-neutral-50/70 px-6 py-7 sm:px-8">
+            <div className="flex items-baseline justify-between gap-4">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+                Hireable for
+              </p>
+              <p className="font-mono text-[11px] text-neutral-400">
+                {CAPABILITY_CHIPS.length} capabilities
+              </p>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {CAPABILITY_CHIPS.map((label) => (
+                <span
+                  key={label}
+                  className="inline-flex items-center border border-neutral-300 bg-white px-3 py-1.5 font-mono text-[12px] text-neutral-700 transition-colors duration-150 hover:border-neutral-900 hover:text-neutral-900"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
 
       <ScaleDivider />
@@ -285,14 +374,14 @@ export function HomePage() {
         <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-2 lg:items-center">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
-              03 — Security
+              03 - Security
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
               Rogue agents don&apos;t move money.
             </h2>
             <p className="mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500">
               An agent can request anything it wants. Only a deterministic
-              policy — not an LLM, not a UI, not a promise — decides whether
+              policy - not an LLM, not a UI, not a promise - decides whether
               the ledger moves. Every check runs before the mutation, and a
               blocked transfer changes no balance.
             </p>
@@ -351,12 +440,12 @@ export function HomePage() {
       {/* ─── FINAL CTA ─── */}
       <section className="py-24">
         <div className="mx-auto max-w-6xl px-6 text-center">
-          <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-5xl">
+          <h2 className="mx-auto max-w-2xl text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
             Put your workforce on a budget.
           </h2>
           <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500">
             Give Kraven a task and a hard limit. Watch it hire, verify, pay,
-            and learn — inside a policy it cannot talk its way out of.
+            and learn - inside a policy it cannot talk its way out of.
           </p>
           <Link
             href="/dashboard"
@@ -385,7 +474,7 @@ export function HomePage() {
               className="h-4 w-auto opacity-60"
             />
             <span className="font-mono text-[12px] text-neutral-500">
-              — economic security sandbox for AI agents
+              - economic security sandbox for AI agents
             </span>
           </div>
           <div className="flex items-center gap-6 font-mono text-[11px] uppercase tracking-wider text-neutral-400">

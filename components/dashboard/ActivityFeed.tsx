@@ -1,22 +1,30 @@
-﻿"use client";
+"use client";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import type { KravenEvent } from "@/lib/hooks/useEventStream";
-import { useDraggable } from "@/lib/hooks/useDraggable";
-import { ChevronLeft, ChevronRight, GripVertical, Radio } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SECURITY_EVENTS = new Set(["TRANSACTION_BLOCKED", "WALLET_REVOKED"]);
 const SUCCESS_EVENTS = new Set(["QA_PASSED", "TRANSACTION_APPROVED", "TASK_COMPLETED"]);
-const FAIL_EVENTS = new Set(["QA_FAILED", "TASK_FAILED", "TASK_CANCELLED"]);
+const FAIL_EVENTS = new Set(["QA_FAILED", "TASK_FAILED", "TASK_CANCELLED", "REWORK_REQUESTED"]);
+
+// Worker output previews are raw markdown ("## Heading ### Sub **bold**"), which
+// reads as noise in a one-line log entry.
+function plainPreview(text: string, max = 90): string {
+  const plain = text.replace(/[#*_`>|]+/g, " ").replace(/\s+/g, " ").trim();
+  return plain.length > max ? `${plain.slice(0, max).trimEnd()}…` : plain;
+}
+
+function humanize(raw: string): string {
+  const spaced = raw.toLowerCase().replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
 
 function eventLine(e: KravenEvent): string {
   const p = (e.payload ?? {}) as Record<string, unknown>;
   switch (e.eventType) {
     case "MANAGER_PLANNING":
-      return `Manager is decomposing the task...`;
+      return `Manager is decomposing the task…`;
     case "SUBTASK_CREATED":
       return `Subtask created: ${p.type} (needs ${p.requiredCapability})`;
     case "AGENTS_DISCOVERED":
@@ -30,11 +38,34 @@ function eventLine(e: KravenEvent): string {
     case "ESCROW_LOCKED":
       return `Escrow locked: ${p.amount} tokens for ${p.agentId}`;
     case "WORK_STARTED":
+      if (p.revision) return `${e.actor} revising its work (rework round ${p.revision})`;
       return `${e.actor} started work${p.attempt && Number(p.attempt) > 1 ? ` (attempt ${p.attempt})` : ""}`;
+    case "PLAN_ADJUSTED": {
+      const dropped = Array.isArray(p.dropped) ? (p.dropped as Array<{ type: string; reason: string }>) : [];
+      return dropped.length
+        ? `Workflow fitted to budget: dropped ${dropped.map((d) => d.type).join(", ")}`
+        : `Workflow normalized (${Array.isArray(p.normalization) ? p.normalization.length : 0} adjustment(s))`;
+    }
+    case "TOOL_CALLED":
+      return `${e.actor} used ${p.tool}: ${p.ok ? p.summary : `failed — ${p.error}`}`;
+    case "INTEGRATION_REVIEW_COMPLETED": {
+      const issues = Array.isArray(p.issues) ? p.issues.length : 0;
+      return p.approved ? `Final review approved the deliverable (${p.score}/100)` : `Final review requested changes: ${issues} issue(s)`;
+    }
+    case "REWORK_REQUESTED": {
+      const targets = Array.isArray(p.targets) ? (p.targets as Array<{ type: string }>) : [];
+      return `Sending work back (round ${p.round}) to: ${targets.map((t) => t.type).join(", ")}`;
+    }
+    case "REWORK_COMPLETED":
+      return p.resolved ? `Rework resolved all blocking issues` : `Rework limit reached — unresolved issues are disclosed in the report`;
     case "WORK_COMPLETED":
-      return `${e.actor} completed work: "${String(p.preview ?? "").slice(0, 80)}..."`;
+      return `${e.actor} completed work: “${plainPreview(String(p.preview ?? ""))}”`;
+    case "WEB_DATA_FETCHED": {
+      const sources = Array.isArray(p.sources) ? p.sources.length : 0;
+      return p.available ? `Fetched ${sources} live source${sources === 1 ? "" : "s"}` : "No live web data available";
+    }
     case "QA_STARTED":
-      return `QA reviewing output...`;
+      return `QA reviewing output…`;
     case "QA_PASSED":
       return `QA passed — score ${p.score}/100`;
     case "QA_FAILED":
@@ -44,9 +75,9 @@ function eventLine(e: KravenEvent): string {
     case "TRANSACTION_APPROVED":
       return `Payment approved: ${p.amount} tokens to ${p.agentId}`;
     case "TRANSACTION_BLOCKED":
-      return `CIRCUIT BREAKER BLOCKED: ${p.agentId} requested ${p.amount} tokens — ${p.reason}`;
+      return `Circuit breaker blocked ${p.agentId}: requested ${p.amount} tokens — ${p.reason}`;
     case "WALLET_REVOKED":
-      return `Agent ${p.agentId} REVOKED for severe policy violation`;
+      return `Agent ${p.agentId} revoked for severe policy violation`;
     case "ESCROW_REFUNDED":
       return `Escrow refunded: ${p.amount} tokens (${p.reason})`;
     case "TASK_CANCELLED":
@@ -62,108 +93,64 @@ function eventLine(e: KravenEvent): string {
     case "TASK_CREATED":
       return `Task created — budget ${p.budget} tokens`;
     default:
-      return e.eventType;
+      return humanize(e.eventType);
   }
 }
 
-export function ActivityFeed({
-  events,
-  open,
-  onOpenChange,
-}: {
-  events: KravenEvent[];
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const { containerRef, style, isDragging, handleProps } = useDraggable();
+type Tone = "security" | "success" | "fail" | "default";
 
-  if (!open) {
-    return (
-      <div className="pointer-events-auto absolute left-3 top-16 z-20 sm:left-4 sm:top-20">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="group size-10 rounded-full border border-panel-border bg-panel text-panel-muted shadow-lg backdrop-blur-xl transition-all duration-200 ease-out hover:border-panel-border hover:bg-panel-elevated hover:text-panel-foreground hover:shadow-xl active:scale-95"
-          onClick={() => onOpenChange(true)}
-          aria-label="Expand live activity"
-          title="Expand live activity"
-        >
-          <Radio className="absolute size-3.5 opacity-100 transition-opacity duration-150 group-hover:opacity-0" />
-          <ChevronRight className="absolute size-4 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
-        </Button>
-      </div>
-    );
+const TONES: Record<Tone, { row: string; dot: string; text: string }> = {
+  security: { row: "bg-destructive/5", dot: "bg-destructive", text: "text-destructive" },
+  fail: { row: "bg-amber-500/5", dot: "bg-amber-500", text: "text-amber-700 dark:text-amber-300" },
+  success: { row: "", dot: "bg-emerald-500", text: "text-foreground" },
+  default: { row: "", dot: "bg-muted-foreground/40", text: "text-foreground" },
+};
+
+function toneOf(eventType: string): Tone {
+  if (SECURITY_EVENTS.has(eventType)) return "security";
+  if (FAIL_EVENTS.has(eventType)) return "fail";
+  if (SUCCESS_EVENTS.has(eventType)) return "success";
+  return "default";
+}
+
+// Raw, chronological log of everything the backend emitted for this task.
+// Newest first. Every line is a persisted event - nothing here is synthesized.
+export function ActivityList({ events }: { events: KravenEvent[] }) {
+  if (events.length === 0) {
+    return <p className="px-5 py-8 text-center text-[13px] text-muted-foreground">No activity yet. Events appear here as the workforce works.</p>;
   }
-
   return (
-    <div
-      ref={containerRef}
-      style={style}
-      className={cn(
-        "pointer-events-auto absolute left-3 top-16 bottom-36 z-20 flex w-[calc(100vw-5rem)] flex-col overflow-hidden rounded-lg border border-panel-border bg-panel text-panel-foreground shadow-xl backdrop-blur-xl sm:left-4 sm:top-20 sm:bottom-20 sm:w-72",
-        !isDragging && "animate-in fade-in slide-in-from-left-2 duration-200 ease-out",
-      )}
-    >
-      <div
-        {...handleProps}
-        className="flex select-none items-center justify-between gap-2 border-b border-panel-border px-3 py-2"
-      >
-        <div className="flex items-center gap-1.5 text-sm font-medium tracking-tight">
-          <GripVertical className="size-3.5 text-panel-muted/60" />
-          <Radio className="size-3.5 text-panel-muted" />
-          Live Activity
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 rounded-full text-panel-muted transition-colors hover:bg-panel-elevated hover:text-panel-foreground"
-          onClick={() => onOpenChange(false)}
-          aria-label="Collapse live activity"
-          title="Collapse live activity"
-        >
-          <ChevronLeft className="size-4" />
-        </Button>
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="animate-in fade-in min-w-0 space-y-1.5 overflow-x-hidden p-2.5 duration-300">
-          {events.length === 0 && <p className="text-xs text-panel-muted">Waiting for events...</p>}
-          {events
-            .slice()
-            .reverse()
-            .map((e) => {
-              const isSecurity = SECURITY_EVENTS.has(e.eventType);
-              const isSuccess = SUCCESS_EVENTS.has(e.eventType);
-              const isFail = FAIL_EVENTS.has(e.eventType);
-              return (
-                <div
-                  key={e.id}
-                  className={cn(
-                    "animate-in fade-in slide-in-from-top-1 min-w-0 rounded-sm border px-2.5 py-1.5 font-mono text-[11px] leading-relaxed wrap-break-word duration-300",
-                    isSecurity
-                      ? "border-destructive/50 bg-destructive/10 text-destructive"
-                      : isSuccess
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-100"
-                        : isFail
-                          ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-100"
-                          : "border-panel-border bg-panel-elevated text-panel-foreground",
-                  )}
-                >
-                  <div className="mb-0.5 flex min-w-0 items-center gap-1.5">
-                    <Badge
-                      variant="secondary"
-                      title={e.actor}
-                      className="min-w-0 shrink truncate rounded-sm px-1 py-0 text-[9px]"
-                    >
-                      {e.actor}
-                    </Badge>
-                    <span className="shrink-0 text-panel-muted">{new Date(e.createdAt).toLocaleTimeString()}</span>
+    <ScrollArea className="h-full">
+      <ul className="min-w-0 overflow-x-hidden py-1">
+        {events
+          .slice()
+          .reverse()
+          .map((e) => {
+            const tone = TONES[toneOf(e.eventType)];
+            return (
+              <li
+                key={e.id}
+                className={cn(
+                  "flex min-w-0 animate-in fade-in slide-in-from-top-1 gap-3 border-b border-border/60 px-5 py-3 duration-300 ease-out last:border-b-0",
+                  tone.row,
+                )}
+              >
+                <span className={cn("mt-1.5 size-1.5 shrink-0 rounded-full transition-colors duration-300", tone.dot)} aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-baseline justify-between gap-3">
+                    <span title={e.actor} className="truncate text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+                      {e.actor.replace(/_/g, " ")}
+                    </span>
+                    <time dateTime={e.createdAt} className="shrink-0 text-[11px] tabular-nums text-muted-foreground/80">
+                      {new Date(e.createdAt).toLocaleTimeString()}
+                    </time>
                   </div>
-                  <div className="wrap-anywhere">{eventLine(e)}</div>
+                  <p className={cn("mt-0.5 text-[13px] leading-snug wrap-anywhere", tone.text)}>{eventLine(e)}</p>
                 </div>
-              );
-            })}
-        </div>
-      </ScrollArea>
-    </div>
+              </li>
+            );
+          })}
+      </ul>
+    </ScrollArea>
   );
 }

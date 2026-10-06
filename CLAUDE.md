@@ -202,11 +202,11 @@ The core economic/routing logic must remain Kraven-owned.
 
 Prefer:
 
--   PostgreSQL
--   Prisma
+-   MongoDB
+-   Mongoose
 
-SQLite is acceptable as a local fallback if PostgreSQL setup becomes a
-blocker.
+Run MongoDB as a replica set (e.g. Atlas) so the economy engine gets
+atomic multi-document transactions.
 
 All economic state must be persistent.
 
@@ -280,7 +280,7 @@ Blockchain is NOT the internal source of truth.
 ## Deployment
 
 -   Vercel for the Next.js application
--   Neon/Supabase/Railway/Postgres provider for PostgreSQL
+-   MongoDB Atlas for MongoDB
 
 ------------------------------------------------------------------------
 

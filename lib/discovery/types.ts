@@ -1,6 +1,7 @@
 export interface DiscoverableAgent {
   id: string;
   name: string;
+  role: string | null;
   capabilities: string[];
   price: number;
   endpoint: string | null;
@@ -11,11 +12,12 @@ export interface DiscoverableAgent {
   avgLatencyMs: number;
   avgCost: number;
   totalJobs: number;
+  // Measured samples behind the stat fields; 0 = unrated.
+  sampleCount: number;
 }
 
 // Adapter-based agent marketplace. LocalRegistryProvider always works with
-// zero external credentials; ExternalMarketplaceProvider is a pluggable
-// stub that degrades to Local when no API credentials are configured.
+// zero external credentials; further providers plug in behind this interface.
 export interface AgentDiscoveryProvider {
   readonly source: string;
   discover(capability: string): Promise<DiscoverableAgent[]>;

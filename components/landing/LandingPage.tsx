@@ -159,9 +159,9 @@ const MARQUEE_ITEMS = [
 const FEATURES = [
   { icon: "⚡", title: "Real-time Inference", desc: "Sub-millisecond latency on edge with distributed neural computation across your entire stack." },
   { icon: "🧠", title: "Autonomous Agents", desc: "Self-optimizing workforce clusters that adapt, learn, and re-route decisions autonomously." },
-  { icon: "🌊", title: "Fluid Architecture", desc: "Liquid-state design systems that morph to your workflow — no rigidity, pure momentum." },
+  { icon: "🌊", title: "Fluid Architecture", desc: "Liquid-state design systems that morph to your workflow - no rigidity, pure momentum." },
   { icon: "🔭", title: "Deep Analytics", desc: "Hyperdimensional data mapping with pattern recognition across temporal event streams." },
-  { icon: "🛡️", title: "Zero-Trust Security", desc: "Cryptographic attestation at every compute boundary — security that scales with intent." },
+  { icon: "🛡️", title: "Zero-Trust Security", desc: "Cryptographic attestation at every compute boundary - security that scales with intent." },
   { icon: "🚀", title: "Warp Deployment", desc: "Ship atomic updates globally in under 200ms with rollback-safe blue-green routing." },
 ];
 
@@ -321,7 +321,7 @@ export function LandingPage() {
           {mounted && (
             <p className="anim-fade-up delay-300 text-white/35 text-base md:text-lg max-w-xl leading-relaxed mb-12 font-mono">
               Streamline your workflow and boost productivity with intuitive solutions.
-              <br />Security, speed, and simplicity — all in one platform.
+              <br />Security, speed, and simplicity - all in one platform.
             </p>
           )}
 
@@ -424,7 +424,7 @@ export function LandingPage() {
               data-cursor-hover
               className="rounded-full px-10 py-5 text-sm font-semibold text-black bg-white hover:bg-white/90 transition-all duration-300"
             >
-              Start Building — it&apos;s free
+              Start Building - it&apos;s free
             </button>
           </MagneticButton>
         </div>

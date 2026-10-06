@@ -1,9 +1,9 @@
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db/client";
 import { emitEvent } from "@/lib/events/emit";
 import type { DiscoverableAgent } from "@/lib/discovery/types";
 
 // Deterministic bidding: each capable, active agent bids its registry price.
-// Kept deterministic (not a per-agent Gemini call) so the bidding step is
+// Kept deterministic (not a per-agent Sarvam call) so the bidding step is
 // fast and demo-reliable; the registry price already encodes the agent's
 // "ask", which is realistic enough for the MVP marketplace.
 export async function collectBids(params: {
@@ -15,7 +15,7 @@ export async function collectBids(params: {
 
   for (const agent of params.candidates) {
     const proposal = `I can deliver ${agent.capabilities.join(", ")} for this subtask.`;
-    const bid = await prisma.bid.create({
+    const bid = await db.bid.create({
       data: {
         subtaskId: params.subtaskId,
         agentId: agent.id,
@@ -25,7 +25,7 @@ export async function collectBids(params: {
     });
     bids.set(agent.id, bid.amount);
 
-    await emitEvent(prisma, {
+    await emitEvent(db, {
       taskId: params.taskId,
       actor: agent.id,
       eventType: "BID_RECEIVED",
