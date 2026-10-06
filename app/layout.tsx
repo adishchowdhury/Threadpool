@@ -1,4 +1,4 @@
-﻿import type { Metadata, Viewport } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -24,7 +24,13 @@ const instrumentSerif = Instrument_Serif({
 
 export const metadata: Metadata = {
   title: "Kraven - AI Workforce Command Center",
-  description: "Autonomous AI workforce optimizer",
+  description: "Autonomous AI workforce optimizer powered by Algorand & x402",
+  openGraph: {
+    siteName: "Kraven AI Workforce",
+    title: "Kraven - AI Workforce Command Center",
+    description: "Autonomous AI workforce optimizer powered by Algorand & x402",
+    images: ["/logo.png"],
+  },
   icons: {
     icon: "/icon.svg",
     shortcut: "/icon.svg",
@@ -39,7 +45,7 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"

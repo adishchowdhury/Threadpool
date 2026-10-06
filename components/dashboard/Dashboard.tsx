@@ -13,8 +13,9 @@ import { firebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/lib/use-auth-user";
 import { greet } from "@/lib/greeting";
 import { cn } from "@/lib/utils";
+import { AlgorandModal } from "@/components/dashboard/AlgorandModal";
 import type { AgentRecord, TaskRecord, CentralLedgerRecord, AlgorandLedgerTransactionRecord, SecurityEventRecord } from "@/lib/types";
-import { Loader2, PanelLeftOpen, PanelRight } from "lucide-react";
+import { Loader2, PanelLeftOpen, PanelRight, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 const EXAMPLES: Array<{ title: string; prompt: string }> = [
@@ -83,6 +84,7 @@ export function Dashboard() {
   const [algorandTransactions, setAlgorandTransactions] = useState<AlgorandLedgerTransactionRecord[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEventRecord[]>([]);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+  const [algorandModalOpen, setAlgorandModalOpen] = useState(false);
   const [mode, setMode] = useState<"user" | "org">("user");
 
   // Opens the task named by a shared ?task=<id> link (see Sidebar's "Share"),
@@ -339,6 +341,15 @@ export function Dashboard() {
           <div className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={mode === "org" ? "My Organization" : title}>
             {mode === "org" ? "My Organization" : title}
           </div>
+          <button
+            type="button"
+            onClick={() => setAlgorandModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-500 hover:bg-emerald-500/20 transition-colors shrink-0"
+            title="View Algorand Mainnet & x402 Status"
+          >
+            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-semibold">Algorand Mainnet</span>
+          </button>
           {mode === "user" && isRunning && (
             <span className="animate-in fade-in zoom-in-95 flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground duration-200">
               <Loader2 className="size-3 animate-spin" />
@@ -453,6 +464,7 @@ export function Dashboard() {
       )}
 
       <MarketplacePanel agents={agents} open={marketplaceOpen} onOpenChange={setMarketplaceOpen} />
+      <AlgorandModal open={algorandModalOpen} onOpenChange={setAlgorandModalOpen} />
     </div>
   );
 }
