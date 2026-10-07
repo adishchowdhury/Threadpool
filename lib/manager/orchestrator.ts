@@ -31,7 +31,7 @@ async function isCancelled(taskId: string) {
   return task.status === "CANCELLED" || task.status === "CANCELLING";
 }
 
-async function failTask(taskId: string, reason: string) {
+export async function failTask(taskId: string, reason: string) {
   const task = await db.task.findUnique({ where: { id: taskId } });
   if (!task || task.status === "CANCELLED" || task.status === "CANCELLING" || task.status === "COMPLETED" || task.status === "PARTIAL") return;
 
