@@ -71,6 +71,61 @@ export async function recordPerformanceAndUpdateReputation(params: {
   await applyFailureRateGovernance(params.agentId, params.taskId, params.success);
 }
 
+// Demotion is meant to be reversible, but nothing used to reverse it:
+// discovery only sees ACTIVE agents, so a demoted agent could never earn its
+// way back, and once every agent for a capability was demoted (which a
+// provider timeout bug did to whole capabilities) every task needing it
+// failed with "capability match 0". Two deterministic rules, run before
+// discovery for a capability, restore it:
+//   1. cooldown - a built-in agent demoted more than REINSTATE_COOLDOWN_MS
+//      ago (or before demotedAt existed) goes back on probation (streak
+//      reset; three more failures demote it again);
+//   2. never empty - if a capability still has no ACTIVE agent, the best-
+//      rated demoted one is reinstated rather than skipping the step.
+// External agents are excluded: their reinstatement is driven by a passing
+// health check (app/api/agents/health/sweep). REVOKED (severe Circuit
+// Breaker violation) is permanent and never touched here.
+export const REINSTATE_COOLDOWN_MS = 30 * 60_000;
+
+export async function reinstateForCapability(capability: string, taskId: string | null): Promise<string[]> {
+  const all = await db.agent.findMany({ where: { status: { in: ["ACTIVE", "INACTIVE"] }, isExternal: { not: true } } });
+  const matching = all.filter((a) => (JSON.parse(a.capabilities) as string[]).includes(capability));
+  const inactive = matching.filter((a) => a.status === "INACTIVE");
+  if (inactive.length === 0) return [];
+
+  const now = Date.now();
+  const toReinstate = inactive.filter((a) => !a.demotedAt || now - new Date(a.demotedAt).getTime() >= REINSTATE_COOLDOWN_MS);
+  const activeAfter = matching.filter((a) => a.status === "ACTIVE").length + toReinstate.length;
+  if (activeAfter === 0) {
+    const best = [...inactive].sort((a, b) => (b.reputation ?? 0) - (a.reputation ?? 0))[0];
+    toReinstate.push(best);
+  }
+
+  for (const agent of toReinstate) {
+    // Conditional on still being INACTIVE: two concurrent subtasks may run
+    // this for the same capability; only one write should win.
+    const claimed = await db.agent.updateMany({ where: { id: agent.id, status: "INACTIVE" }, data: { status: "ACTIVE", consecutiveFailures: 0, demotedAt: null } });
+    if (claimed.count === 0) continue;
+    await emitEvent(db, {
+      taskId,
+      actor: "system",
+      eventType: "AGENT_REACTIVATED",
+      payload: { agentId: agent.id, name: agent.name, capability, reason: activeAfter === 0 ? "no active agent left for this capability" : "demotion cooldown elapsed" },
+    });
+  }
+  return toReinstate.map((a) => a.id);
+}
+
+// Applies reinstateForCapability to every capability that currently has a
+// demoted built-in agent - run before a task is priced and planned, so a
+// capability isn't planned around as unstaffable just because its agents
+// are serving out a demotion.
+export async function reinstateEligibleAgents(taskId: string | null): Promise<void> {
+  const inactive = await db.agent.findMany({ where: { status: "INACTIVE", isExternal: { not: true } } });
+  const capabilities = new Set(inactive.flatMap((a) => JSON.parse(a.capabilities) as string[]));
+  for (const capability of capabilities) await reinstateForCapability(capability, taskId);
+}
+
 // Rolling failure-rate demotion: reset the streak on success, otherwise
 // increment it and demote once it crosses the threshold. Reads/writes only
 // what's already in the DB - deterministic, no LLM input, same spirit as
@@ -87,7 +142,9 @@ async function applyFailureRateGovernance(agentId: string, taskId: string, succe
 
   await db.agent.update({
     where: { id: agentId },
-    data: outcome.demote ? { consecutiveFailures: outcome.consecutiveFailures, status: "INACTIVE" } : { consecutiveFailures: outcome.consecutiveFailures },
+    data: outcome.demote
+      ? { consecutiveFailures: outcome.consecutiveFailures, status: "INACTIVE", demotedAt: new Date() }
+      : { consecutiveFailures: outcome.consecutiveFailures },
   });
 
   if (outcome.demote) {

@@ -124,14 +124,20 @@ function checksPerformedLines(params: {
   numeric: NumericCheckReport;
 }): string[] {
   const { stepsReviewed, sources, cites, numeric } = params;
+  // "Nothing to check" results are stated as what was actually done: a bare
+  // "0 claims recomputed" read as an empty placeholder to the QA model, which
+  // then rejected genuine reviews of tasks that had no sources or no
+  // derived figures, over and over.
   const citationLine =
     sources.length === 0
-      ? "Citations: no sources were retrieved anywhere in this task, so there is nothing to cite."
+      ? "Citations: checked every step's retrieval record - no web sources were retrieved in this task, so there were no citations to cross-check (unsourced figures are judged in the review itself)."
       : `Citations: ${cites.cited.length} cited against ${sources.length} retrieved source(s), ${cites.invalid.length} invalid, ${cites.unknownUrls.length} unlisted URL(s).`;
   const numericLine =
-    numeric.status === "checked"
-      ? `Arithmetic: ${numeric.checked} claim(s) recomputed independently - ${numeric.consistent} consistent, ${numeric.mismatches} mismatch(es), ${numeric.unevaluable} unevaluable.`
-      : `Arithmetic: not checked (${numeric.reason ?? "unavailable"}).`;
+    numeric.status !== "checked"
+      ? `Arithmetic: not checked (${numeric.reason ?? "unavailable"}).`
+      : numeric.checked === 0
+        ? "Arithmetic: scanned the report for derived figures (a result stated as computed from other stated figures) and found none, so there was nothing to recompute."
+        : `Arithmetic: ${numeric.checked} claim(s) recomputed independently - ${numeric.consistent} consistent, ${numeric.mismatches} mismatch(es), ${numeric.unevaluable} unevaluable.`;
   return [`Reviewed ${stepsReviewed} workflow step(s).`, citationLine, numericLine];
 }
 

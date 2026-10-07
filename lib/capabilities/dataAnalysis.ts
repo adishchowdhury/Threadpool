@@ -67,9 +67,12 @@ const extractionSchema = z.object({
 async function extractFromProse(input: CapabilityRunInput): Promise<{ datasets: Dataset[]; dropped: number; usage?: Usage }> {
   const corpus = input.upstream.map((u) => u.output).join("\n\n");
   if (!corpus.trim() || numbersInText(corpus).length < 3) return { datasets: [], dropped: 0 };
+  // Mechanical copy-the-numbers extraction (checked against the prose
+  // below): the fast tier is enough and leaves the attempt's time budget
+  // for the analysis itself.
   const { object, usage } = await generateStructuredWithUsage({
     schema: extractionSchema,
-    tier: agentTier(input),
+    tier: "economy",
     prompt: `Tabulate the comparable numeric figures written in the material below (one row per entity, one column per metric, first column = entity name). Copy numbers exactly as written; use plain numbers (no units in cells; put units in column names). Do not compute or invent anything.
 Assignment context: ${input.description}
 

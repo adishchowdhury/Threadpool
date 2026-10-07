@@ -26,9 +26,12 @@ const queriesSchema = z.object({ queries: z.array(z.string()).min(1) });
 async function planQueries(input: CapabilityRunInput): Promise<{ queries: string[]; usage?: Usage }> {
   if (!isSarvamConfigured()) return { queries: heuristicQueries(input.taskPrompt, input.description) };
   try {
+    // Writing 2-4 search queries is a trivial, auxiliary step: it runs on the
+    // fast tier, not the hired agent's. On a premium (high reasoning) agent it
+    // took 30-70s of the attempt's time budget, starving the actual write-up.
     const { object, usage } = await generateStructuredWithUsage({
       schema: queriesSchema,
-      tier: agentTier(input),
+      tier: "economy",
       prompt: `Write 2-4 web search queries that will find current, factual sources for this research assignment.
 Each query: 3-10 plain keywords, as a person would type them. No search operators (no site:, OR, quotes). Name the specific entities, metric and year where recency matters.
 Overall task: "${input.taskPrompt}"

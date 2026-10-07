@@ -98,7 +98,7 @@ function fallbackVerdict(output: string, qualityThreshold: number): QaVerdict {
 // plain deliverable.
 const QA_FOCUS: Record<string, string> = {
   quality_verification:
-    "This output is a REVIEW of other workers' deliverable. Judge the review itself: is it rigorous, specific, and are its issues correctly attributed with actionable fixes? A review that (correctly) rejects weak work can score highly. A review's 'Checks performed' section lists concrete, code-verified evidence (citations cross-checked against retrieved sources, arithmetic independently recomputed, structure checked) - this is real verification work, not a placeholder, even when the reviewer model's own qualitative judgment did not run and even when it finds zero issues. Do NOT fail a review merely for finding nothing wrong when 'Checks performed' shows genuine, specific checks were actually run (nonzero steps reviewed, citations/arithmetic actually counted) - that is a legitimate clean bill of health, not a rubber stamp. Only fail it if 'Checks performed' is vague/absent, or if it is contradicted by an obvious problem in the deliverable you can see directly.",
+    "This output is a REVIEW of other workers' deliverable. Judge the review itself: is it rigorous, specific, and are its issues correctly attributed with actionable fixes? A review that (correctly) rejects weak work can score highly. A review's 'Checks performed' section lists concrete, code-verified evidence (citations cross-checked against retrieved sources, arithmetic independently recomputed, structure checked) - this is real verification work, not a placeholder, even when the reviewer model's own qualitative judgment did not run and even when it finds zero issues. Do NOT fail a review merely for finding nothing wrong when 'Checks performed' shows genuine, specific checks were actually run (nonzero steps reviewed, citations/arithmetic actually counted) - that is a legitimate clean bill of health, not a rubber stamp. Only fail it if 'Checks performed' is vague/absent, or if it is contradicted by an obvious problem in the deliverable you can see directly. A check line saying there was nothing to cross-check (no sources were retrieved in the task, or the report contains no derived figures) is an accurate finding about this task, not a placeholder - never fail a review for it; judge the review on whether its issues are correct and actionable.",
   web_research:
     "Judge whether the sourced findings actually address the assignment and are kept separate from the model's own analysis. Citation validity has already been verified by code.",
   data_analysis:
@@ -112,6 +112,25 @@ const QA_FOCUS: Record<string, string> = {
   regulatory_compliance:
     "Judge whether the regulatory/compliance obligations named are specific (named regulator, jurisdiction, requirement) rather than a generic 'consult a lawyer' disclaimer, and whether the practical impact on the opportunity is stated.",
 };
+
+// Web research reports what the retrieved sources say. When the live web
+// simply doesn't contain what the assignment asked for, an honest report of
+// that is the correct output - and a retry can't create sources. Failing it
+// discarded every genuine source it did find (the step's output is dropped),
+// so the final report lost its evidence. Accept it at the bar instead when
+// it is real, sourced and honest: code-verified citations (the deterministic
+// rubric already ran), a disclosed gaps section, and a reviewer score that
+// says it is partially useful rather than off-topic or empty.
+const INCOMPLETE_RESEARCH_MIN_SCORE = 40;
+
+export function acceptableIncompleteResearch(params: { type: string; output: string; artifacts?: SubtaskArtifacts }, score: number): boolean {
+  return (
+    params.type === "web_research" &&
+    (params.artifacts?.sources?.length ?? 0) > 0 &&
+    /^#{1,4}\s*gaps/im.test(params.output) &&
+    score >= INCOMPLETE_RESEARCH_MIN_SCORE
+  );
+}
 
 // QA is deliberately separate from the worker that produced the output.
 // Combines deterministic checks (always applied, cannot be overridden) with a
@@ -223,6 +242,18 @@ If it fails, "reason" must say concretely what to change, and "issues" must list
     });
     // The pass/fail line is Kraven's, not the model's: enforce the threshold.
     const verdict = { ...object, passed: object.passed && object.score >= params.qualityThreshold };
+    if (!verdict.passed && acceptableIncompleteResearch(params, verdict.score)) {
+      return {
+        verdict: {
+          passed: true,
+          score: params.qualityThreshold,
+          reason: `Accepted at the bar as incomplete research: its sourced findings passed Kraven's citation checks and it discloses what the sources don't establish. Reviewer's concern, carried forward as a known gap: ${verdict.reason}`,
+          issues: verdict.issues,
+        },
+        source: "sarvam",
+        notes: capability.notes,
+      };
+    }
     return { verdict, source: "sarvam", notes: capability.notes };
   } catch (err) {
     console.error("[QA] Sarvam quality review failed, using local fallback verdict:", err);

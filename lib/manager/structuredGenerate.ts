@@ -2,6 +2,7 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_LARGE_OUTPUT_TOKENS, SARVAM_CALL_TIMEOUT_MS, sarvamCallTimeoutMs, type SarvamModelTier } from "@/lib/manager/sarvam";
 import { BRIEF_REASONING_NOTE } from "@/lib/capabilities/llm";
+import { clampTimeout } from "@/lib/runtime/deadline";
 
 // Sarvam reasoning models may emit <think> blocks and fenced JSON, so ask for
 // raw JSON directly via generateText, strip any fence, then validate through the same Zod
@@ -48,7 +49,7 @@ export async function generateStructuredWithUsage<T extends z.ZodType>(params: {
     // giving it the same long budget let a single stalled large-output,
     // high-effort call (e.g. the final integration review) burn up to
     // 2x150s, most of the whole task's serverless duration limit, on its own.
-    const timeoutMs = attempt === 0 ? sarvamCallTimeoutMs({ tier: params.tier, largeOutput: params.largeOutput }) : SARVAM_CALL_TIMEOUT_MS;
+    const timeoutMs = clampTimeout(attempt === 0 ? sarvamCallTimeoutMs({ tier: params.tier, largeOutput: params.largeOutput }) : SARVAM_CALL_TIMEOUT_MS);
     const res = await generateText({
       model: sarvamModel(params.tier),
       // Judgments (QA, planning) should be repeatable, not sampled.

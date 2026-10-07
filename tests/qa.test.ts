@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { verifySubtaskOutput } from "@/lib/manager/qa";
+import { acceptableIncompleteResearch, verifySubtaskOutput } from "@/lib/manager/qa";
 
 // These tests run without SARVAM_API_KEY set, so verifySubtaskOutput always
 // resolves through the deterministic rubric/local-fallback path - no network
@@ -112,4 +112,15 @@ test("fallback QA never claims a passing score reflects verified correctness", a
   // Deterministic heuristics cannot verify semantic correctness - this only
   // asserts the verdict is honest about that, not that it rejects the output.
   assert.match(verdict.reason, /semantic correctness was not verified/);
+});
+
+test("incomplete but honest, sourced web research is accepted at the bar; off-topic, unsourced or non-research output is not", () => {
+  const source = { id: "S1", url: "https://example.org/a", title: "A", excerpt: "x", fetchedAt: "2026-10-07", query: "q", kind: "page" as const };
+  const output = "## Sourced findings\n- A fact [S1]\n## Analysis (model-generated, not from sources)\n- ...\n## Gaps & caveats\n- The sources don't cover X.";
+  const research = { type: "web_research", output, artifacts: { sources: [source] } };
+  assert.equal(acceptableIncompleteResearch(research, 55), true);
+  assert.equal(acceptableIncompleteResearch(research, 30), false, "reviewer judged it off-topic/empty");
+  assert.equal(acceptableIncompleteResearch({ ...research, artifacts: { sources: [] } }, 55), false, "nothing was retrieved");
+  assert.equal(acceptableIncompleteResearch({ ...research, output: output.replace(/## Gaps & caveats[\s\S]*/, "") }, 55), false, "gaps not disclosed");
+  assert.equal(acceptableIncompleteResearch({ ...research, type: "report_generation" }, 55), false, "only applies to web research");
 });

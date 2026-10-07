@@ -73,7 +73,7 @@ export function TaskResult({ task }: { task: TaskRecord }) {
   const review = (parsed.review ?? null) as ReviewSummary | null;
   const confidence = (parsed.confidence ?? null) as { score: number; label: "high" | "medium" | "low"; reason: string } | null;
   const incomplete = Array.isArray(parsed.incomplete_subtasks)
-    ? (parsed.incomplete_subtasks as Array<{ type: string; requiredCapability: string; reason: string }>)
+    ? (parsed.incomplete_subtasks as Array<{ type: string; requiredCapability: string; reason: string; summary?: string; detail?: string }>)
     : [];
 
   async function handleCopy() {
@@ -107,13 +107,19 @@ export function TaskResult({ task }: { task: TaskRecord }) {
           <div className="min-w-0">
             <div className="font-medium text-amber-700 dark:text-amber-300">Completed with gaps</div>
             <div className="mt-0.5 text-muted-foreground">
-              {incomplete.length} step{incomplete.length > 1 ? "s" : ""} couldn&apos;t be completed and no replacement agent was available. The rest of the
-              workforce finished and the report below reflects that.
+              {incomplete.length === 1 ? "One step" : `${incomplete.length} steps`} couldn&apos;t be completed. The rest of the workforce finished, and the report
+              below is built from what was completed.
             </div>
-            <ul className="mt-1.5 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+            <ul className="mt-1.5 space-y-1.5 text-xs text-muted-foreground">
               {incomplete.map((d, i) => (
                 <li key={i}>
-                  <span className="font-medium text-foreground">{d.type.replace(/_/g, " ")}</span> — {d.reason}
+                  {d.summary ?? `${d.type.replace(/_/g, " ")} — ${d.reason}`}
+                  {d.detail && d.summary && (
+                    <details className="mt-0.5">
+                      <summary className="cursor-pointer select-none text-[11px] hover:text-foreground">Technical details</summary>
+                      <p className="mt-1 text-[11px] leading-relaxed">{d.detail}</p>
+                    </details>
+                  )}
                 </li>
               ))}
             </ul>

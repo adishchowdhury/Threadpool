@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
+import { drainBackground } from "@/lib/runtime/background";
 import { db } from "@/lib/db/client";
 import { lockAgentEscrow, releaseAgentEscrow } from "@/lib/economy/escrow";
 import { issueCredential, CREDENTIAL_OPERATIONS } from "@/lib/economy/credentials";
@@ -54,6 +55,8 @@ export async function POST(request: Request) {
     maxSpend: authorizedAmount,
   });
 
+  // The legitimate lock below mirrors to Algorand in the background.
+  after(() => drainBackground(25_000));
   const lock = await lockAgentEscrow({
     taskId: task.id,
     subtaskId: subtask.id,

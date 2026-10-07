@@ -124,6 +124,9 @@ const agentSchema = new Schema<any>(
     // Reaching the threshold auto-demotes ACTIVE -> INACTIVE (reversible),
     // distinct from the permanent severe-violation REVOKE in circuitBreaker.ts.
     consecutiveFailures: { type: Number, default: 0 },
+    // When the agent was last auto-demoted; drives cooldown reinstatement
+    // (lib/economy/reputation.ts reinstateForCapability).
+    demotedAt: { type: Date, default: null },
     lastHealthCheckAt: { type: Date, default: null },
     lastHealthStatus: { type: String, default: null },
   },
@@ -225,6 +228,17 @@ const taskSchema = new Schema<any>(
     // fallback (Firebase unconfigured) keep working unscoped.
     organizationId: { type: String, default: null },
     pinned: { type: Boolean, default: false },
+    // Durable execution (lib/manager/taskRunner.ts): a task runs as a chain
+    // of bounded segments, one serverless invocation each. `leaseUntil` makes
+    // sure only one segment runs at a time; `segment` counts them.
+    leaseUntil: { type: Date, default: null },
+    segment: { type: Number, default: 0 },
+    // JSON ReworkOutcome of the final review, kept here so a later segment
+    // can assemble the report.
+    reviewOutcome: { type: String, default: null },
+    // JSON ReworkProgress (lib/manager/rework.ts) while a rework round is
+    // spread over several segments.
+    reworkProgress: { type: String, default: null },
   },
   { timestamps: true, versionKey: false },
 );
@@ -249,6 +263,11 @@ const subtaskSchema = new Schema<any>(
     output: { type: String, default: null },
     qaScore: { type: Number, default: null },
     qaReason: { type: String, default: null },
+    // Why the step was skipped (no agent, exhausted retries, out of time) -
+    // disclosed in the final report.
+    skipReason: { type: String, default: null },
+    // SkipKind (lib/manager/incompleteSteps.ts) - drives the plain-language wording.
+    skipKind: { type: String, default: null },
     // JSON SubtaskArtifacts (lib/capabilities/types.ts): retrieved sources,
     // structured comparables, datasets, computed results, review verdict,
     // tool calls. What downstream workers and QA consume besides `output`.
@@ -256,6 +275,7 @@ const subtaskSchema = new Schema<any>(
   },
   { timestamps: true, versionKey: false },
 );
+subtaskSchema.index({ taskId: 1, sequence: 1 });
 
 // ── BIDS ───────────────────────────────────────────────────────────────
 const bidSchema = new Schema<any>(
@@ -300,6 +320,7 @@ const agentEscrowSchema = new Schema<any>(
   },
   { timestamps: true, versionKey: false },
 );
+agentEscrowSchema.index({ taskId: 1, status: 1 });
 
 const centralLedgerSchema = new Schema<any>(
   {
@@ -411,6 +432,8 @@ const eventSchema = new Schema<any>(
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
 );
 eventSchema.index({ organizationId: 1, createdAt: 1 });
+// The dashboard polls a running task's events every few seconds.
+eventSchema.index({ taskId: 1, createdAt: 1 });
 
 const securityEventSchema = new Schema<any>(
   {

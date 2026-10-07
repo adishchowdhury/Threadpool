@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useEventStream, type KravenEvent } from "@/lib/hooks/useEventStream";
 import { Composer } from "@/components/dashboard/Composer";
@@ -186,6 +186,15 @@ export function Dashboard() {
     refreshAgents();
   }, [events, taskId]);
 
+  // The SSE stream only carries events emitted by the server instance it is
+  // connected to, and a long task runs its later execution segments in other
+  // invocations - so while the task is running, also poll its persisted
+  // events and ledger instead of relying on the stream alone.
+  const taskStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    taskStatusRef.current = task?.id === taskId ? (task?.status ?? null) : null;
+  }, [task?.id, task?.status, taskId]);
+
   useEffect(() => {
     if (!taskId) return;
     refreshTask(taskId);
@@ -193,9 +202,22 @@ export function Dashboard() {
     refreshHistoricalEvents(taskId);
     const interval = setInterval(() => {
       refreshTask(taskId);
+      if (ACTIVE_STATUSES.has(taskStatusRef.current ?? "")) {
+        refreshHistoricalEvents(taskId);
+        refreshLedger(taskId);
+      }
     }, 3000);
     return () => clearInterval(interval);
   }, [taskId]);
+
+  // One last refresh once the task settles, so the final events and ledger
+  // entries are shown even if the stream missed them.
+  const settledStatus = task?.id === taskId && task && !ACTIVE_STATUSES.has(task.status) ? task.status : null;
+  useEffect(() => {
+    if (!taskId || !settledStatus) return;
+    refreshHistoricalEvents(taskId);
+    refreshLedger(taskId);
+  }, [taskId, settledStatus]);
 
   const taskEvents = useMemo(() => {
     const live = events.filter((e) => e.taskId === taskId);

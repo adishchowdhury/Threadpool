@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_CALL_TIMEOUT_MS, sarvamCallTimeoutMs, type SarvamModelTier } from "@/lib/manager/sarvam";
 import type { CapabilityRunInput } from "@/lib/capabilities/types";
+import { clampTimeout } from "@/lib/runtime/deadline";
 
 export type Usage = { inputTokens: number; outputTokens: number };
 
@@ -28,7 +29,7 @@ export async function generateWithReasoningGuard(params: { tier: SarvamModelTier
     // it the same long budget as attempt 0 let a single stalled call burn
     // 2x a premium tier's ~100-150s timeout, most of a whole task's
     // serverless duration budget on its own.
-    const timeoutMs = attempt === 0 ? sarvamCallTimeoutMs({ tier: params.tier }) : SARVAM_CALL_TIMEOUT_MS;
+    const timeoutMs = clampTimeout(attempt === 0 ? sarvamCallTimeoutMs({ tier: params.tier }) : SARVAM_CALL_TIMEOUT_MS);
     const res = await generateText({
       model: sarvamModel(params.tier),
       maxOutputTokens: SARVAM_MAX_OUTPUT_TOKENS,

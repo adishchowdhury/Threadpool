@@ -215,6 +215,6 @@ Hard token budget: ${params.budget}${params.qualityThreshold ? `\nRequired quali
 
 // Workflow-memory key: the set of content capabilities, so tasks with the
 // same workflow shape are compared with each other.
-export function workflowSignature(plan: TaskPlan): string {
+export function workflowSignature(plan: { subtasks: Array<{ requiredCapability: string }> }): string {
   return [...new Set(plan.subtasks.map((s) => s.requiredCapability).filter((c) => stageOf(c) !== "verify"))].sort().join("+");
 }

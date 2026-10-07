@@ -77,6 +77,18 @@ test("Circuit Breaker authorizes escrow for every plannable capability, still bl
   assert.equal(evaluateTransaction({ amount: 2, purpose: "unbounded_payment_request", taskRemainingBudget: 8, agentStatus: "ACTIVE", escrowAvailable: 8 }).decision, "BLOCK");
 });
 
+test("Circuit Breaker: a demoted agent can't be hired but is paid escrow it already earned; a revoked one gets nothing", () => {
+  const base = { amount: 4, purpose: "web_research", taskRemainingBudget: 50, escrowAvailable: 4 };
+  assert.equal(evaluateTransaction({ ...base, agentStatus: "INACTIVE" }).decision, "BLOCK", "lock defaults to the strict rule");
+  assert.equal(evaluateTransaction({ ...base, agentStatus: "INACTIVE", operation: "LOCK" }).decision, "BLOCK");
+  assert.equal(evaluateTransaction({ ...base, agentStatus: "INACTIVE", operation: "RELEASE" }).decision, "APPROVE");
+  assert.equal(evaluateTransaction({ ...base, agentStatus: "REVOKED", operation: "RELEASE" }).decision, "BLOCK");
+  assert.equal(evaluateTransaction({ ...base, agentStatus: "REVOKED", operation: "LOCK" }).decision, "BLOCK");
+  // Paying a demoted agent never relaxes the amount checks.
+  assert.equal(evaluateTransaction({ ...base, amount: 5, agentStatus: "INACTIVE", operation: "RELEASE" }).decision, "BLOCK");
+  assert.equal(evaluateTransaction({ ...base, amount: 10_000, agentStatus: "INACTIVE", operation: "RELEASE" }).decision, "BLOCK");
+});
+
 test("every capability lists only tools that exist", async () => {
   const { TOOL_REGISTRY } = await import("@/lib/tools/registry");
   for (const c of CAPABILITY_IDS) for (const t of CAPABILITY_CATALOG[c].tools) assert.ok(TOOL_REGISTRY.has(t), `${c} -> ${t}`);

@@ -18,15 +18,22 @@ async function runSweep() {
     candidates.map(async (agent: any) => {
       const check = await testExternalConnection({ id: agent.id, endpoint: agent.endpoint, externalAuthSecretEncrypted: agent.externalAuthSecretEncrypted });
       const demote = !check.ok && agent.status === "ACTIVE";
+      // Symmetric with demotion: a demoted agent whose endpoint is healthy
+      // again goes back on probation instead of staying out forever.
+      const reinstate = check.ok && agent.status === "INACTIVE";
 
       await db.agent.update({
         where: { id: agent.id },
         data: {
           lastHealthCheckAt: new Date(),
           lastHealthStatus: check.ok ? "HEALTHY" : "UNHEALTHY",
-          ...(demote ? { status: "INACTIVE" } : {}),
+          ...(demote ? { status: "INACTIVE", demotedAt: new Date() } : {}),
+          ...(reinstate ? { status: "ACTIVE", consecutiveFailures: 0, demotedAt: null } : {}),
         },
       });
+      if (reinstate) {
+        await emitEvent(db, { actor: "system", eventType: "AGENT_REACTIVATED", payload: { agentId: agent.id, reason: "automatic health check passed" } });
+      }
 
       if (demote) {
         await db.securityEvent.create({
@@ -45,7 +52,7 @@ async function runSweep() {
         });
       }
 
-      return { agentId: agent.id, name: agent.name, ok: check.ok, demoted: demote };
+      return { agentId: agent.id, name: agent.name, ok: check.ok, demoted: demote, reinstated: reinstate };
     }),
   );
 

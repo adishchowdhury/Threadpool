@@ -6,6 +6,7 @@ import { managerWalletId, escrowWalletId } from "@/lib/economy/wallets";
 import { generateMockAlgorandAddress } from "@/lib/blockchain/algorand";
 import * as algo from "@/lib/blockchain/algorand";
 import { emitEvent } from "@/lib/events/emit";
+import { runInBackground } from "@/lib/runtime/background";
 import type { DbClient } from "@/lib/db/client";
 import type { TxType } from "@/lib/db/types";
 
@@ -19,6 +20,16 @@ import type { TxType } from "@/lib/db/types";
 // db.$transaction has committed, never with its TransactionClient: a real
 // on-chain submission waits several seconds for confirmation, which would
 // hold the financial transaction's row locks open for far too long.
+//
+// Runs in the background (lib/runtime/background.ts): the mirror is a real
+// x402 payment round trip (402 -> sign -> facilitator verify -> settle) that
+// waits on chain confirmation. Awaiting it made every escrow lock, payout
+// and refund cost tens of seconds - several per subtask - which is a large
+// part of why tasks overran the serverless time limit.
+function mirrorInBackground(params: Parameters<typeof mirrorLedgerToAlgorand>[1]) {
+  runInBackground(`ledger mirror ${params.type} ${params.centralLedgerId}`, () => mirrorLedgerToAlgorand(db, params), 60_000);
+}
+
 async function mirrorLedgerToAlgorand(
   db: DbClient,
   params: {
@@ -226,9 +237,9 @@ export async function lockAgentEscrow(params: {
     });
 
     return { blocked: false as const, agentEscrow, lockLedgerId: lockLedger.id };
-  }).then(async (result) => {
+  }).then((result) => {
     if (!result.blocked) {
-      await mirrorLedgerToAlgorand(db, {
+      mirrorInBackground({
         taskId: params.taskId,
         centralLedgerId: result.lockLedgerId,
         fromWalletId: managerWalletId(),
@@ -293,6 +304,7 @@ export async function releaseAgentEscrow(params: {
       taskRemainingBudget: task.budget,
       agentStatus: agent.status,
       escrowAvailable: agentEscrow.amount,
+      operation: "RELEASE",
     });
 
     if (decision.decision === "BLOCK") {
@@ -365,9 +377,9 @@ export async function releaseAgentEscrow(params: {
     });
 
     return { blocked: false as const, agentWallet, payoutLedgerId: payoutLedger.id, taskId: task.id };
-  }).then(async (result) => {
+  }).then((result) => {
     if (!result.blocked) {
-      await mirrorLedgerToAlgorand(db, {
+      mirrorInBackground({
         taskId: result.taskId,
         centralLedgerId: result.payoutLedgerId,
         fromWalletId: escrowWalletId(),
@@ -432,9 +444,9 @@ export async function refundAgentEscrow(params: { agentEscrowId: string; reason:
     });
 
     return { refunded: true as const, refundLedgerId: refundLedger.id, taskId: agentEscrow.taskId, amount: agentEscrow.amount };
-  }).then(async (result) => {
+  }).then((result) => {
     if (result.refunded) {
-      await mirrorLedgerToAlgorand(db, {
+      mirrorInBackground({
         taskId: result.taskId,
         centralLedgerId: result.refundLedgerId,
         fromWalletId: escrowWalletId(),

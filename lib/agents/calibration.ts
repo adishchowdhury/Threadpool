@@ -4,6 +4,7 @@ import { verifySubtaskOutput } from "@/lib/manager/qa";
 import { refreshAgentStats } from "@/lib/agents/stats";
 import { ROSTER } from "@/lib/agents/roster";
 import { SARVAM_MODEL_TIERS, type SarvamModelTier } from "@/lib/manager/sarvam";
+import { emitEvent } from "@/lib/events/emit";
 import type { UpstreamItem } from "@/lib/capabilities/types";
 
 // Calibration: run each agent on a fixed, capability-specific benchmark with
@@ -138,8 +139,17 @@ async function calibrateOne(agent: { id: string; model: string | null }, capabil
 // Calibrates every active worker agent (or just `agentIds`) on each of its
 // capabilities. Replaces that agent's previous calibration samples so
 // re-running reflects current behavior instead of accumulating stale data.
+//
+// Also includes INACTIVE agents (but not REVOKED ones - that's the
+// permanent, severe-violation gate, untouched by this): reputation.ts's
+// auto-demotion (3 consecutive failures) calls itself "reversible", but
+// nothing ever reversed it - discovery and this function's own query both
+// excluded INACTIVE agents, so once demoted an agent could never be
+// re-tested or re-enter the pool even after whatever caused the failures
+// (e.g. a too-tight call timeout) was fixed. See the reactivation block
+// below.
 export async function calibrateAgents(options: { agentIds?: string[] } = {}): Promise<CalibrationRun[]> {
-  const agents = await db.agent.findMany({ where: { status: "ACTIVE" } });
+  const agents = await db.agent.findMany({ where: { status: { in: ["ACTIVE", "INACTIVE"] } } });
   const rostered = new Set(ROSTER.map((a) => a.id));
   const targets = agents.filter((a) => rostered.has(a.id) && (options.agentIds ? options.agentIds.includes(a.id) : true));
 
@@ -181,6 +191,22 @@ export async function calibrateAgents(options: { agentIds?: string[] } = {}): Pr
     });
   }
   for (const id of new Set(results.map((r) => r.agentId))) await refreshAgentStats(id);
+
+  // Reactivation: an INACTIVE agent that just demonstrated it can pass QA
+  // again earns its way back into the discoverable pool. Requires an actual
+  // passing, real (non-fallback) run in THIS batch - not merely "didn't get
+  // worse" - so a lucky skip doesn't quietly un-demote a still-broken agent.
+  const inactiveById = new Map(targets.filter((a) => a.status === "INACTIVE").map((a) => [a.id, a]));
+  const passedAgentIds = new Set(results.filter((r) => r.status === "recorded" && r.passed).map((r) => r.agentId));
+  for (const [agentId, agent] of inactiveById) {
+    if (!passedAgentIds.has(agentId)) continue;
+    await db.agent.update({ where: { id: agentId }, data: { status: "ACTIVE", consecutiveFailures: 0, demotedAt: null } });
+    await emitEvent(db, {
+      actor: "system",
+      eventType: "AGENT_REACTIVATED",
+      payload: { agentId, name: agent.name, reason: "passed re-calibration after auto-demotion" },
+    });
+  }
 
   return results;
 }

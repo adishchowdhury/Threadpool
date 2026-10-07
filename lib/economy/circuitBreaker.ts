@@ -22,6 +22,9 @@ export interface CircuitBreakerInput {
   taskRemainingBudget: number;
   agentStatus: "ACTIVE" | "INACTIVE" | "REVOKED";
   escrowAvailable: number;
+  // LOCK = hiring (escrow funds for an agent); RELEASE = paying out escrow
+  // already locked for it. Defaults to LOCK, the stricter of the two.
+  operation?: "LOCK" | "RELEASE";
 }
 
 export type CircuitBreakerResult =
@@ -35,7 +38,14 @@ export function evaluateTransaction(input: CircuitBreakerInput): CircuitBreakerR
   if (input.amount > input.taskRemainingBudget) {
     return { decision: "BLOCK", reason: "budget exceeded" };
   }
-  if (input.agentStatus !== "ACTIVE") {
+  // Nobody is hired unless ACTIVE. Paying out escrow that was locked while
+  // the agent WAS active, for work that passed QA, is still allowed after a
+  // soft demotion (INACTIVE is a routing decision - "stop hiring" - not a
+  // forfeit of earned pay); blocking it failed whole tasks whose agent was
+  // demoted by a parallel step mid-subtask. REVOKED (severe violation) blocks
+  // everything.
+  const payable = input.agentStatus === "ACTIVE" || (input.operation === "RELEASE" && input.agentStatus === "INACTIVE");
+  if (!payable) {
     return { decision: "BLOCK", reason: `agent is ${input.agentStatus.toLowerCase()}` };
   }
   if (input.amount > input.escrowAvailable) {

@@ -44,6 +44,8 @@ export const EVENT_TYPES = [
   "PERMISSION_DENIED",
   "PERMISSION_REVOKED",
   "AGENT_AUTO_DEMOTED",
+  "AGENT_REACTIVATED",
+  "WORKFLOW_CONTINUED",
 ] as const;
 
 export type KravenEventType = (typeof EVENT_TYPES)[number];

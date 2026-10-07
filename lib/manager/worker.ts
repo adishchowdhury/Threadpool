@@ -22,6 +22,7 @@ import { describeEvidenceSignals, evidenceSignals } from "@/lib/manager/confiden
 import { executeExternalTask } from "@/lib/agents/externalClient";
 import type { CapabilityRunInput, CapabilityRunOutput, SubtaskArtifacts, UpstreamItem } from "@/lib/capabilities/types";
 import type { ToolCallRecord } from "@/lib/tools/types";
+import { clampTimeout, withTimeout } from "@/lib/runtime/deadline";
 
 // Capabilities with a specialised runtime (tools + structured output). Every
 // other capability runs through the generic prompt-based runtime below.
@@ -226,20 +227,29 @@ export async function executeSubtask(params: {
     const agent = params.agentId
       ? await db.agent.findUnique({ where: { id: params.agentId }, select: { model: true, systemPrompt: true } })
       : null;
-    const result = await runtime({
-      capability: params.type,
-      description: params.description,
-      taskPrompt: params.taskPrompt,
-      feedback: params.feedback,
-      upstream: params.upstream ?? [],
-      knownSources: params.knownSources ?? [],
-      taskId: params.taskId,
-      subtaskId: params.subtaskId,
-      agentId: params.agentId,
-      agent: agent ? { tier: agent.model ?? null, systemPrompt: agent.systemPrompt ?? null } : null,
-      webGrounding: params.webGrounding !== false,
-    });
-    return { ...result, actualLatencyMs: Date.now() - start };
+    try {
+      const result = await runtime({
+        capability: params.type,
+        description: params.description,
+        taskPrompt: params.taskPrompt,
+        feedback: params.feedback,
+        upstream: params.upstream ?? [],
+        knownSources: params.knownSources ?? [],
+        taskId: params.taskId,
+        subtaskId: params.subtaskId,
+        agentId: params.agentId,
+        agent: agent ? { tier: agent.model ?? null, systemPrompt: agent.systemPrompt ?? null } : null,
+        webGrounding: params.webGrounding !== false,
+      });
+      return { ...result, actualLatencyMs: Date.now() - start };
+    } catch (err) {
+      // Runtimes fall back internally on ordinary model errors; what reaches
+      // here is the attempt running out of its time budget (or a provider
+      // failure in a fallback call). That's a provider-side failure, not the
+      // agent's work - same treatment as the generic path below.
+      console.error(`[Worker] ${params.type} runtime failed: ${err instanceof Error ? err.message : String(err)}`);
+      return { output: fallbackOutput(params), actualLatencyMs: Date.now() - start, source: "local_fallback" };
+    }
   }
 
   // If this is market research and we have taskId and agentId, route via the
@@ -284,7 +294,9 @@ export async function executeSubtask(params: {
         const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
         const url = `${baseUrl}/api/x402/premium-market-research?query=${encodeURIComponent(params.taskPrompt)}&depth=premium`;
 
-        const response = await payFetch(url, { method: "GET" });
+        // The purchase is an optional input to the agent's work, so it gets a
+        // modest bound: a slow facilitator must not stall the step.
+        const response = await withTimeout(payFetch(url, { method: "GET" }), clampTimeout(25_000), "x402 premium data purchase");
         if (!response.ok) {
           throw new Error(`x402 request failed (HTTP ${response.status}): ${await describeX402Failure(response)}`);
         }

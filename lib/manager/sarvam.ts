@@ -40,9 +40,11 @@ export const SARVAM_CALL_TIMEOUT_MS = 45_000;
 // attempt (never a genuine provider outage), burning through
 // retry/reassignment attempts and driving total task time up instead of
 // down. Size the budget to what the call actually asked for instead.
+// Capped so one call plus a web search pass fits a worker attempt's budget
+// (lib/manager/budgets.ts) with room left for the capability's fallback.
 export function sarvamCallTimeoutMs(params: { tier?: SarvamModelTier; largeOutput?: boolean } = {}): number {
   const spec = SARVAM_MODEL_TIERS[params.tier ?? "economy"] ?? SARVAM_MODEL_TIERS.economy;
-  if (spec.reasoningEffort === "high") return params.largeOutput ? 150_000 : 100_000;
+  if (spec.reasoningEffort === "high") return params.largeOutput ? 110_000 : 90_000;
   if (spec.reasoningEffort === "low") return 70_000;
   return SARVAM_CALL_TIMEOUT_MS;
 }

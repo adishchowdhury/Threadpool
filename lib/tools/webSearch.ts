@@ -1,14 +1,15 @@
 import { z } from "zod";
-import { searchWeb, scrapePage, SearchBlockedError, type WebSearchResult } from "@/lib/manager/webScraper";
+import { searchWeb, scrapePage, isBrightDataConfigured, type WebSearchResult } from "@/lib/manager/webScraper";
 import type { Source } from "@/lib/capabilities/sources";
 import type { AgentTool } from "@/lib/tools/types";
+import { withTimeout } from "@/lib/runtime/deadline";
 
 // Live web search + page retrieval. Every page it returns is registered in
 // the task's SourceRegistry, which is what gives it a citable [S#] id. If
 // nothing could be retrieved it says so (available: false) - it never
 // returns made-up results.
 
-const OVERALL_DEADLINE_MS = 45_000;
+const OVERALL_DEADLINE_MS = 30_000;
 
 const STOPWORDS = new Set(
   "the a an and or of to for in on with is are by from at as vs top best latest current market companies company report reports analysis data overview guide"
@@ -51,18 +52,20 @@ export const webSearchTool: AgentTool<{ queries: string[]; maxSources: number },
   async run({ queries, maxSources }, ctx) {
     const start = Date.now();
     const fetchedAt = new Date().toISOString();
-    const perQuery: WebSearchResult[][] = [];
     const errors: string[] = [];
-    for (const q of queries) {
-      try {
-        perQuery.push(await searchWeb(q, 5));
-      } catch (err) {
-        errors.push(err instanceof Error ? err.message : "search failed");
-        perQuery.push([]);
-        // Every further query would hit the same block - stop paying for it.
-        if (err instanceof SearchBlockedError) break;
-      }
-    }
+    // Concurrent, lightly staggered: run one after another, 2-4 queries that
+    // each may walk several providers cost up to a minute on their own.
+    const perQuery: WebSearchResult[][] = await Promise.all(
+      queries.map(async (q, i) => {
+        if (i > 0) await new Promise((r) => setTimeout(r, i * 300));
+        try {
+          return await searchWeb(q, 5);
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : "search failed");
+          return [];
+        }
+      }),
+    );
 
     // Round-robin across queries so one query cannot crowd out the others.
     // Results whose title+snippet share no significant term with their query
@@ -88,23 +91,35 @@ export const webSearchTool: AgentTool<{ queries: string[]; maxSources: number },
       return { available: false, queries, sources: [], reason };
     }
 
-    const sources: Source[] = [];
-    // Sequential: the Bright Data scraping browser rejects concurrent navigations.
-    for (const r of picked) {
-      const outOfTime = Date.now() - start > OVERALL_DEADLINE_MS;
-      if (!outOfTime && !/\.pdf($|\?)/i.test(r.url)) {
-        try {
-          const page = await scrapePage(r.url);
-          if (page.excerpt.length > 200) {
-            sources.push(ctx.sources.add({ url: r.url, title: r.title || page.title, excerpt: page.excerpt, fetchedAt, query: r.query, kind: "page" }));
-            continue;
-          }
-        } catch {
-          /* fall through to the search snippet */
-        }
+    // Each page fetch is raced against what's left of the overall budget, so
+    // one slow page can't push the step past it; a page that doesn't make it
+    // falls back to its search snippet.
+    const fetchPage = async (r: (typeof picked)[number]) => {
+      const left = OVERALL_DEADLINE_MS - (Date.now() - start);
+      if (left < 2_000 || /\.pdf($|\?)/i.test(r.url)) return null;
+      try {
+        const page = await withTimeout(scrapePage(r.url), left, `page fetch ${r.url}`);
+        return page.excerpt.length > 200 ? page : null;
+      } catch {
+        return null;
       }
-      if (r.snippet) sources.push(ctx.sources.add({ url: r.url, title: r.title, excerpt: r.snippet, fetchedAt, query: r.query, kind: "snippet" }));
+    };
+    // The Bright Data scraping browser rejects concurrent navigations, so it
+    // stays sequential; plain fetch() has no such limit.
+    const pages: Array<Awaited<ReturnType<typeof fetchPage>>> = [];
+    if (isBrightDataConfigured()) {
+      for (const r of picked) pages.push(await fetchPage(r));
+    } else {
+      pages.push(...(await Promise.all(picked.map(fetchPage))));
     }
+
+    // Registered in pick order so [S#] ids stay deterministic.
+    const sources: Source[] = [];
+    picked.forEach((r, i) => {
+      const page = pages[i];
+      if (page) sources.push(ctx.sources.add({ url: r.url, title: r.title || page.title, excerpt: page.excerpt, fetchedAt, query: r.query, kind: "page" }));
+      else if (r.snippet) sources.push(ctx.sources.add({ url: r.url, title: r.title, excerpt: r.snippet, fetchedAt, query: r.query, kind: "snippet" }));
+    });
     if (sources.length === 0) return { available: false, queries, sources: [], reason: "all page fetches failed and no snippets were usable" };
     return { available: true, queries, sources };
   },

@@ -18,6 +18,8 @@
 // project's fallback-transparency rule; callers must label the source
 // honestly and never claim scraped data when none was fetched.
 
+import { clampTimeout } from "@/lib/runtime/deadline";
+
 // A small pool of realistic desktop User-Agents, picked per request. Sending
 // the same UA on every call is itself a bot signal; DuckDuckGo's "anomaly"
 // challenge triggers faster against a single fixed UA hammering it.
@@ -73,7 +75,7 @@ export function isBrightDataConfigured(): boolean {
 
 async function fetchWithTimeout(url: string, timeoutMs: number, init?: RequestInit): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), clampTimeout(timeoutMs));
   try {
     return await fetch(url, { ...init, signal: controller.signal, headers: { "User-Agent": randomUserAgent(), ...BROWSER_HEADERS, ...init?.headers } });
   } finally {
@@ -119,7 +121,7 @@ async function fetchViaBrightDataBrowser(url: string, timeoutMs: number): Promis
       await browser.close().catch(() => {});
     }
   })();
-  return withHardDeadline(fetchPromise, BRIGHTDATA_CONNECT_TIMEOUT_MS + timeoutMs + 5000, `Bright Data fetch for ${url}`);
+  return withHardDeadline(fetchPromise, clampTimeout(BRIGHTDATA_CONNECT_TIMEOUT_MS + timeoutMs + 5000), `Bright Data fetch for ${url}`);
 }
 
 // Fetches a URL's HTML, preferring Bright Data's Scraping Browser when
@@ -362,12 +364,20 @@ async function searchDuckDuckGo(query: string, maxResults = 4): Promise<WebSearc
   return results;
 }
 
+// Same idea as searchCache: a retried or reworked step usually lands on the
+// same URLs, and re-rendering them through a remote browser costs 10-30s each.
+const pageCache = new Map<string, { at: number; page: ScrapedPage }>();
+
 export async function scrapePage(url: string): Promise<ScrapedPage> {
+  const cached = pageCache.get(url);
+  if (cached && Date.now() - cached.at < SEARCH_CACHE_TTL_MS) return cached.page;
   const { html } = await fetchHtml(url, PAGE_TIMEOUT_MS);
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? decodeHtmlEntities(titleMatch[1]).trim() : url;
   const text = stripHtmlToText(html);
-  return { url, title, excerpt: text.slice(0, MAX_EXCERPT_CHARS) };
+  const page = { url, title, excerpt: text.slice(0, MAX_EXCERPT_CHARS) };
+  pageCache.set(url, { at: Date.now(), page });
+  return page;
 }
 
 // Top-level entry point for workers: search the live web for `query`,

@@ -1,9 +1,9 @@
-﻿import { db } from "@/lib/db/client";
+import { db } from "@/lib/db/client";
 import { emitEvent } from "@/lib/events/emit";
 import { commitWorkflowEvent, verifyWorkflowEvent, computeSha256 } from "@/lib/blockchain/algorandTrust";
 import { decomposeTask, fitPlanToBudget, workflowSignature } from "@/lib/manager/planner";
 import { priceFloorByCapability, reserveForLaterSteps, loadUpstream, taskSources, parseArtifacts } from "@/lib/manager/workflowContext";
-import { runReworkCycle, type ReworkOutcome } from "@/lib/manager/rework";
+import { runReworkCycle, type ReworkOutcome, type ReworkProgress } from "@/lib/manager/rework";
 import { hashText } from "@/lib/capabilities/review";
 import { renderSourcesSection, sourcesForText, stripInvalidCitations, stripModelSourceList } from "@/lib/capabilities/sources";
 import { discoverAgents } from "@/lib/discovery";
@@ -19,12 +19,31 @@ import type { QaVerdict } from "@/lib/manager/schemas";
 import { checkReportNumbers } from "@/lib/manager/numericCheck";
 import { computeOverallConfidence } from "@/lib/manager/confidence";
 import { buildFinalReport } from "@/lib/manager/finalReport";
-import { recordPerformanceAndUpdateReputation } from "@/lib/economy/reputation";
+import { recordPerformanceAndUpdateReputation, reinstateEligibleAgents, reinstateForCapability } from "@/lib/economy/reputation";
 import { findSimilarWorkflow, storeWorkflow } from "@/lib/manager/workflowMemory";
+import { describeIncompleteStep, renderLimitationsNote, type SkipKind } from "@/lib/manager/incompleteSteps";
+import { deadlineExhausted, remainingMs, runWithBudget } from "@/lib/runtime/deadline";
+import { ATTEMPT_EXEC_BUDGET_MS, ATTEMPT_START_WINDOW_MS, ATTEMPT_WINDOW_MS, QA_BUDGET_MS } from "@/lib/manager/budgets";
 
 // Max times one subtask's escrow may be moved to a different agent after the
 // current one fails.
 const MAX_REASSIGNMENTS = 3;
+
+// A task runs as a chain of bounded segments (lib/manager/taskRunner.ts),
+// one serverless invocation each; the remaining time of the current segment
+// comes from lib/runtime/deadline.ts. A unit of work only starts if the
+// segment can realistically finish it - otherwise the segment yields and the
+// next one picks up from the persisted state. Outside a segment (scripts)
+// there is no deadline and the task runs to completion in one go.
+const FINAL_PHASE_WINDOW_MS = 60_000;
+const hasWindow = (ms: number) => remainingMs() >= ms;
+
+const IN_FLIGHT_SUBTASK_STATUSES = ["BIDDING", "ASSIGNED", "EXECUTING", "AWAITING_QA"];
+const OUT_OF_TIME_REASON = "the workflow ran out of execution time before this step could finish";
+
+export type SegmentOutcome = { status: "finished" } | { status: "stopped" } | { status: "yielded"; reason: string };
+const FINISHED: SegmentOutcome = { status: "finished" };
+const STOPPED: SegmentOutcome = { status: "stopped" };
 
 async function isCancelled(taskId: string) {
   const task = await db.task.findUniqueOrThrow({ where: { id: taskId } });
@@ -56,15 +75,43 @@ export async function failTask(taskId: string, reason: string) {
   await emitEvent(db, { taskId, actor: "manager", eventType: "TASK_FAILED", payload: { reason } });
 }
 
-// Drives the whole task lifecycle end-to-end. Intended to be fired-and-not-
-// awaited by the API route; all state changes are visible via the Event/SSE
-// stream and by polling GET /api/tasks/:id.
-export async function runTask(taskId: string) {
-  const task = await db.task.findUniqueOrThrow({ where: { id: taskId } });
-  if (await isCancelled(taskId)) return;
+// A provider outage or timeout is not the agent's work: it must not count
+// against the agent's performance record or failure streak. Counting it is
+// what auto-demoted whole capabilities' worth of agents when Sarvam calls
+// were timing out, leaving later tasks with nobody to hire.
+function isInfraFailure(source: string): boolean {
+  return source === "error" || (source === "local_fallback" && isSarvamConfigured());
+}
 
+async function markSkipped(taskId: string, subtask: { id: string; type: string }, kind: SkipKind, reason: string, extra: Record<string, unknown> = {}) {
+  await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED", skipReason: reason, skipKind: kind, ...extra } });
+  await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
+}
+
+// Group subtasks into dependency levels (topological batches): everything in
+// a level has every dependency satisfied by an earlier level, so it runs
+// concurrently with the rest of its level. `sequence` is a strict total
+// order assigned at plan time, but `dependsOn` is the real DAG.
+function buildLevels<T extends { id: string; dependsOn: string }>(subtasks: T[]): T[][] {
+  const levelOf = new Map<string, number>();
+  for (const s of subtasks) {
+    const deps = JSON.parse(s.dependsOn) as string[];
+    // Safe to look up now: dependsOnSequence only ever points at earlier
+    // sequence numbers (planner.ts), and `subtasks` is sorted by sequence.
+    const level = deps.length === 0 ? 0 : Math.max(...deps.map((d) => levelOf.get(d) ?? 0)) + 1;
+    levelOf.set(s.id, level);
+  }
+  const levels: T[][] = [];
+  for (const s of subtasks) (levels[levelOf.get(s.id)!] ??= []).push(s);
+  return levels.filter(Boolean);
+}
+
+async function planTask(task: { id: string; prompt: string; budget: number; qualityThreshold: number }, floor: Map<string, number>) {
+  const taskId = task.id;
+  // A segment killed mid-planning can leave a partial plan behind. Nothing
+  // has been hired or paid for at this stage, so it is safe to start over.
+  await db.subtask.deleteMany({ where: { taskId } });
   await db.task.update({ where: { id: taskId }, data: { status: "PLANNING" } });
-
   await emitEvent(db, { taskId, actor: "manager", eventType: "MANAGER_PLANNING", payload: { prompt: task.prompt } });
 
   const decomposed = await decomposeTask({ prompt: task.prompt, budget: task.budget, qualityThreshold: task.qualityThreshold });
@@ -73,7 +120,6 @@ export async function runTask(taskId: string) {
 
   // Fit the proposed workflow to what the market can actually staff within
   // the budget (cheapest hireable price per capability).
-  const floor = await priceFloorByCapability();
   const fitted = fitPlanToBudget(decomposed.plan, floor, task.budget);
   const plan = fitted.plan;
   if (decomposed.adjustments.length > 0 || fitted.dropped.length > 0) {
@@ -85,8 +131,7 @@ export async function runTask(taskId: string) {
     });
   }
 
-  const taskType = workflowSignature(plan);
-  const memory = await findSimilarWorkflow(taskType, task.prompt);
+  const memory = await findSimilarWorkflow(workflowSignature(plan), task.prompt);
   if (memory) {
     await emitEvent(db, {
       taskId,
@@ -106,7 +151,6 @@ export async function runTask(taskId: string) {
   // Create subtask rows, mapping the plan's sequence numbers to real ids
   // so dependsOn can be stored as actual subtask ids.
   const seqToId = new Map<number, string>();
-  const createdSubtasks: any[] = [];
   for (const sp of [...plan.subtasks].sort((a, b) => a.sequence - b.sequence)) {
     const row = await db.subtask.create({
       data: {
@@ -119,7 +163,6 @@ export async function runTask(taskId: string) {
       },
     });
     seqToId.set(sp.sequence, row.id);
-    createdSubtasks.push(row);
     await emitEvent(db, {
       taskId,
       actor: "manager",
@@ -130,61 +173,84 @@ export async function runTask(taskId: string) {
 
   if (await isCancelled(taskId)) return;
   await db.task.update({ where: { id: taskId }, data: { status: "IN_PROGRESS" } });
+}
 
-  const agentsUsed: string[] = [];
-  let totalCost = 0;
-  // A plain `object` property, not a bare `let`, so reading it after the
-  // concurrent processSubtask calls below isn't at the mercy of TS's closure
-  // narrowing (a `let` only ever reassigned inside a nested function gets
-  // narrowed inconsistently once that function runs in parallel branches).
-  const reviewOutcomeBox: { value: ReworkOutcome | null } = { value: null };
-  const workStart = Date.now();
-  // Hard wall-clock budget for the whole task, safely under the serverless
-  // maxDuration (app/api/tasks/route.ts, currently 300s). Per-call timeouts
-  // (lib/manager/sarvam.ts) bound any SINGLE Sarvam call, but a subtask can
-  // still legitimately spend two full attempts plus reassignment to another
-  // agent - each a real, slow-but-succeeding call - and add up to more time
-  // than the platform gives this invocation to live. Checked before starting
-  // a new subtask and before each retry/reassignment decision so a step that
-  // can't fit in what's left degrades gracefully (the same soft-skip path as
-  // "no eligible agent" - see degraded.push below) instead of still being
-  // mid-attempt when the platform kills the function outright, which is what
-  // left tasks silently stuck in EXECUTING before the GET /api/tasks/:id
-  // reconciliation check could even notice.
-  const TASK_TIME_BUDGET_MS = 260_000;
-  const taskDeadline = workStart + TASK_TIME_BUDGET_MS;
-  const pastDeadline = () => Date.now() > taskDeadline;
-  // Subtasks that could not be completed (no agent, or QA rejected every
-  // attempt and every reassignment). These don't abort the task by
-  // themselves - buildFinalReport already skips subtasks with no output, so
-  // the workflow finishes in a degraded ("PARTIAL") state with the gap
-  // disclosed, rather than discarding every subtask that DID succeed.
-  const degraded: Array<{ type: string; requiredCapability: string; reason: string }> = [];
+// A previous segment that was killed (or crashed) mid-subtask leaves escrow
+// LOCKED and subtasks in an in-flight status that nothing will ever move.
+// Settle them deterministically before continuing: escrow for work that
+// already passed QA is paid out, everything else is refunded to the task
+// budget, and unfinished subtasks go back to PENDING to be re-run.
+async function recoverInterruptedWork(taskId: string) {
+  const rows = await db.subtask.findMany({ where: { taskId } });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const escrows = await db.agentEscrow.findMany({ where: { taskId } });
+
+  for (const escrow of escrows.filter((e) => e.status === "LOCKED")) {
+    const subtask = byId.get(escrow.subtaskId);
+    // A refused payout (e.g. its scoped credential expired) falls back to a
+    // refund: funds are never left locked.
+    const paid =
+      subtask?.status === "DONE" &&
+      !(await releaseAgentEscrow({ agentEscrowId: escrow.id, requestedAmount: escrow.amount, purpose: subtask.requiredCapability })).blocked;
+    if (!paid) await refundAgentEscrow({ agentEscrowId: escrow.id, reason: "segment_interrupted" });
+  }
+
+  for (const row of rows.filter((r) => IN_FLIGHT_SUBTASK_STATUSES.includes(r.status))) {
+    // Already paid = it had passed QA earlier and was being revised by the
+    // final review's rework loop; its accepted output is intact.
+    const paid = escrows.some((e) => e.subtaskId === row.id && e.status === "RELEASED");
+    await db.subtask.update({ where: { id: row.id }, data: paid ? { status: "DONE" } : { status: "PENDING", assignedAgentId: null } });
+  }
+}
+
+// Runs one segment of a task: plans it (first segment only), then works
+// through the dependency levels, the final review's rework and the report,
+// stopping early with "yielded" when the segment cannot fit the next unit of
+// work. Safe to call repeatedly - everything it needs is read from the DB.
+export async function runTask(taskId: string, opts: { finalSegment?: boolean } = {}): Promise<SegmentOutcome> {
+  const finalSegment = opts.finalSegment ?? false;
+  const initial = await db.task.findUniqueOrThrow({ where: { id: taskId } });
+  if (await isCancelled(taskId)) return STOPPED;
+
+  // Before pricing the plan: demoted agents whose cooldown has passed (or
+  // whose capability has nobody left) get another chance.
+  await reinstateEligibleAgents(taskId);
+  const floor = await priceFloorByCapability();
+
+  if (initial.status === "CREATED" || initial.status === "PLANNING") {
+    await planTask(initial, floor);
+    if (await isCancelled(taskId)) return STOPPED;
+  } else {
+    await recoverInterruptedWork(taskId);
+  }
+
+  const task = await db.task.findUniqueOrThrow({ where: { id: taskId } });
+  const subtasks: any[] = await db.subtask.findMany({ where: { taskId }, orderBy: { sequence: "asc" } });
+  const unfinished = (s: { status: string }) => s.status !== "DONE" && s.status !== "FAILED";
+
+  // Set by any subtask that can't fit in this segment; checked between
+  // levels. An object, not a `let`, so TS doesn't narrow it to its initial
+  // null across the concurrent processSubtask calls.
+  const yieldState: { reason: string | null } = { reason: null };
+  const requestYield = (reason: string) => {
+    yieldState.reason ??= reason;
+  };
 
   // Runs one subtask end-to-end: discovery -> filtering -> ranking -> escrow
-  // -> execution -> QA -> retry/reassignment -> payout. Pulled out of the old
-  // `for` loop so independent subtasks (no dependency edge between them -
-  // e.g. market research, competitive analysis and financial analysis all
-  // feeding into one report) can run concurrently instead of strictly one at
-  // a time (see runLevels below). A subtask only ever starts once every
-  // subtask it `dependsOn` has already finished, so `loadUpstream` below
-  // still sees complete upstream output - that invariant doesn't depend on
-  // the rest of the task running sequentially, only on dependencies being
-  // resolved first.
+  // -> execution -> QA -> retry/reassignment -> payout. A subtask only starts
+  // once every subtask it `dependsOn` has finished (levels), so
+  // `loadUpstream` sees complete upstream output.
   //
-  // A `return` in here (same as when this was loop body) only ends THIS
-  // subtask's processing, not the whole task - fatal paths below call
-  // failTask() (which flips the task to FAILED) before returning, and
-  // runLevels checks the task's status between levels to stop scheduling
-  // further work once that happens.
-  async function processSubtask(subtask: (typeof createdSubtasks)[number]): Promise<void> {
+  // A `return` in here only ends THIS subtask's processing: fatal paths call
+  // failTask() first (checked between levels), time-outs call requestYield().
+  async function processSubtask(subtask: any): Promise<void> {
     if (await isCancelled(taskId)) return;
 
-    if (pastDeadline()) {
-      const reason = `Skipped '${subtask.type}': the task ran out of its execution time budget before this step could start.`;
-      await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
-      await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
-      degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
+    // Includes room for hiring (discovery, bids, escrow lock), so the first
+    // attempt below doesn't immediately fail its own window check.
+    if (!hasWindow(ATTEMPT_START_WINDOW_MS)) {
+      if (finalSegment) await markSkipped(taskId, subtask, "time", OUT_OF_TIME_REASON);
+      else requestYield(`not enough time left in this segment to start '${subtask.type}'`);
       return;
     }
 
@@ -192,6 +258,7 @@ export async function runTask(taskId: string) {
 
     await db.subtask.update({ where: { id: subtask.id }, data: { status: "BIDDING" } });
 
+    await reinstateForCapability(subtask.requiredCapability, taskId);
     const discovered = await discoverAgents(subtask.requiredCapability);
     await emitEvent(db, {
       taskId,
@@ -200,8 +267,9 @@ export async function runTask(taskId: string) {
       payload: { subtaskId: subtask.id, count: discovered.length, agentIds: discovered.map((a) => a.id) },
     });
 
-    // Hold back enough budget to staff every later step at the market floor.
-    const reserve = reserveForLaterSteps(createdSubtasks, subtask.sequence, floor);
+    // Hold back enough budget to staff every later, still-unfinished step at
+    // the market floor.
+    const reserve = reserveForLaterSteps(subtasks.filter(unfinished), subtask.sequence, floor);
     const spendCap = Math.max(0, currentTask.remainingBudget - reserve);
     const { eligible: filtered, stages } = filterCandidatesStaged(discovered, currentTask.remainingBudget, currentTask.qualityThreshold, spendCap);
     await emitEvent(db, {
@@ -212,10 +280,7 @@ export async function runTask(taskId: string) {
     });
 
     if (filtered.length === 0) {
-      const reason = `No eligible agent available for subtask '${subtask.type}' within remaining budget.`;
-      await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
-      await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
-      degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
+      await markSkipped(taskId, subtask, "no_agent", `No eligible agent available for subtask '${subtask.type}' within remaining budget.`);
       return;
     }
 
@@ -237,9 +302,15 @@ export async function runTask(taskId: string) {
 
     // `active` tracks whichever agent currently holds the escrow for this
     // subtask - it can change mid-loop via reassignment (§8.2 path B).
-    let active = ranked[0];
+    // Agents that already failed QA on this step - possibly in an earlier
+    // segment, so the in-memory set below can't know - aren't re-hired while
+    // an untried one exists. The performance record survives a hand-off.
+    const failedHere = new Set(
+      (await db.agentPerformance.findMany({ where: { subtaskId: subtask.id, success: false } })).map((p: { agentId: string }) => p.agentId),
+    );
+    let active = ranked.find((r) => !failedHere.has(r.agent.id)) ?? ranked[0];
     let activeEscrowId: string;
-    const triedAgentIds = new Set<string>();
+    const triedAgentIds = new Set<string>(failedHere);
     let reassignments = 0;
 
     // Best untried replacement, ranked on current data after the failed
@@ -324,11 +395,28 @@ export async function runTask(taskId: string) {
       return lockResult;
     }
 
+    // Stops this subtask because the segment is out of time. Mid-task it
+    // hands the step to the next segment untouched (escrow refunded, the
+    // interrupted attempt not counted, nobody scored); in the last allowed
+    // segment it is soft-skipped instead so the task can still finish.
+    async function stopForTime(attemptCountToKeep: number) {
+      await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: finalSegment ? "out_of_time" : "segment_handoff" });
+      if (finalSegment) {
+        await markSkipped(taskId, subtask, "time", OUT_OF_TIME_REASON, { output: null, attemptCount: attemptCountToKeep });
+      } else {
+        await db.subtask.update({ where: { id: subtask.id }, data: { status: "PENDING", assignedAgentId: null, attemptCount: attemptCountToKeep } });
+        requestYield(`'${subtask.type}' did not fit in this segment`);
+      }
+    }
+
+    // A blocked lock moves no money (fail closed) and is recorded by the
+    // Circuit Breaker as a security event; it skips this step instead of
+    // failing the whole task - e.g. the chosen agent was demoted by a
+    // parallel step between ranking and hiring.
     const firstLock = await assign(active);
     if (firstLock.blocked) {
-      if (await isCancelled(taskId)) return; // cancellation, not a real failure - don't mark the task FAILED
-      await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
-      await failTask(taskId, `Escrow lock blocked for subtask '${subtask.type}': ${firstLock.reason}`);
+      if (await isCancelled(taskId)) return;
+      await markSkipped(taskId, subtask, "safeguard", `escrow lock blocked by the Circuit Breaker: ${firstLock.reason}`);
       return;
     }
     activeEscrowId = firstLock.agentEscrow.id;
@@ -343,19 +431,36 @@ export async function runTask(taskId: string) {
 
     // Results flow between agents: this subtask's worker receives the outputs
     // and structured artifacts (sources, comparables, datasets) of the
-    // subtasks it depends on (they are DONE - the loop runs in order), plus
-    // every source retrieved so far in the task for citation.
+    // subtasks it depends on, plus every source retrieved so far in the task
+    // for citation.
     const upstream = await loadUpstream(subtask);
     const knownSources = await taskSources(taskId);
 
     let feedback: string | undefined;
     let done = false;
     let localAttempt = 0; // attempts against the CURRENTLY assigned agent
+    let firstAttemptCleared = true;
     const maxAttempts = subtask.maxAttempts;
-    let qaExhausted = false; // soft-skipped: ran out of agents, didn't actually pass
+    // Across segments and reassignments - a hard stop on total attempts (two
+    // agents' worth), so a step the QA bar won't accept is disclosed as
+    // incomplete instead of consuming many more minutes of attempts.
+    const maxTotalAttempts = maxAttempts * 2;
 
     while (!done) {
       if (await isCancelled(taskId)) return;
+
+      // Re-checked before every retry and reassignment; the first attempt was
+      // already cleared (with hiring margin) before the agent was hired.
+      if (!firstAttemptCleared && !hasWindow(ATTEMPT_WINDOW_MS)) {
+        await stopForTime(subtask.attemptCount);
+        return;
+      }
+      firstAttemptCleared = false;
+      if (subtask.attemptCount >= maxTotalAttempts) {
+        await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "qa_failed_max_attempts" });
+        await markSkipped(taskId, subtask, "attempts", `no attempt passed review after ${subtask.attemptCount} attempts`, { output: null });
+        return;
+      }
 
       localAttempt += 1;
       const attemptNumber = subtask.attemptCount + 1;
@@ -377,17 +482,19 @@ export async function runTask(taskId: string) {
       // retry / escrow reallocation kicks in the same way as for bad output.
       let exec: Awaited<ReturnType<typeof executeSubtask>>;
       try {
-        exec = await executeSubtask({
-          type: subtask.requiredCapability,
-          description: subtask.description ?? subtask.type,
-          taskPrompt: task.prompt,
-          upstream,
-          knownSources,
-          feedback,
-          taskId: taskId,
-          agentId: active.agent.id,
-          subtaskId: subtask.id,
-        });
+        exec = await runWithBudget(ATTEMPT_EXEC_BUDGET_MS, () =>
+          executeSubtask({
+            type: subtask.requiredCapability,
+            description: subtask.description ?? subtask.type,
+            taskPrompt: task.prompt,
+            upstream,
+            knownSources,
+            feedback,
+            taskId: taskId,
+            agentId: active.agent.id,
+            subtaskId: subtask.id,
+          }),
+        );
       } catch (err: any) {
         exec = {
           output: `[EXECUTION ERROR] Agent ${active.agent.id} failed to execute: ${err?.message ?? "unknown error"}`,
@@ -397,37 +504,32 @@ export async function runTask(taskId: string) {
       }
       const actualLatencyMs = Date.now() - executionStart;
 
+      // The segment's deadline may have cut this attempt short: its output
+      // can't be trusted or scored, so hand the step to the next segment.
+      if (deadlineExhausted()) {
+        subtask.attemptCount = attemptNumber - 1;
+        await stopForTime(attemptNumber - 1);
+        return;
+      }
+
       await db.subtask.update({
         where: { id: subtask.id },
         data: { status: "AWAITING_QA", output: exec.output, artifacts: exec.artifacts ? JSON.stringify(exec.artifacts) : null },
       });
 
-      // Anchor result commitment on Algorand trust layer
+      // Record the result's proof in the trust registry (on-chain anchoring
+      // happens in the background) and verify the output against exactly
+      // that record.
+      const committedPayload = { subtaskId: subtask.id, outputHash: computeSha256(exec.output) };
       const commitRes = await commitWorkflowEvent({
         workflowId: taskId,
         taskId,
         eventType: "RESULT_COMMITTED",
         fromAgentId: active.agent.id,
         toAgentId: "qa",
-        payload: {
-          subtaskId: subtask.id,
-          outputHash: computeSha256(exec.output),
-        },
+        payload: committedPayload,
       });
-
-      // Verify workflow event integrity - only against a commitment that was
-      // actually recorded for THIS output. If anchoring itself failed (network,
-      // chain unavailable) there is nothing to verify against; looking up the
-      // latest older commitment instead (a previous attempt's) reported a
-      // false integrity breach and failed the task. The trust layer is
-      // optional and must never take the workflow down on an outage.
-      const verifyRes =
-        commitRes.status === "FAILED"
-          ? { success: true as const, error: `anchoring unavailable - not verified (${commitRes.id})` }
-          : await verifyWorkflowEvent(taskId, "RESULT_COMMITTED", {
-              subtaskId: subtask.id,
-              outputHash: computeSha256(exec.output),
-            });
+      const verifyRes = await verifyWorkflowEvent(commitRes.id, { subtaskId: subtask.id, outputHash: computeSha256(exec.output) });
 
       // Anchor result verification on Algorand trust layer
       await commitWorkflowEvent({
@@ -470,7 +572,7 @@ export async function runTask(taskId: string) {
       // intended demo-mode path, so it still goes through QA's own
       // structural fallback check as normal.
       const qa =
-        (exec.source === "local_fallback" && isSarvamConfigured()) || exec.source === "error" || exec.source === "external_error"
+        isInfraFailure(exec.source) || exec.source === "external_error"
           ? {
               verdict: {
                 passed: false,
@@ -486,28 +588,40 @@ export async function runTask(taskId: string) {
               source: "rubric" as const,
               notes: [] as string[],
             }
-          : await verifySubtaskOutput({
-              type: subtask.requiredCapability,
-              description: subtask.description ?? subtask.type,
-              output: exec.output,
-              qualityThreshold: task.qualityThreshold,
-              artifacts: exec.artifacts,
-              knownSources: [...knownSources, ...(exec.artifacts?.sources ?? [])],
-            });
+          : await runWithBudget(QA_BUDGET_MS, () =>
+              verifySubtaskOutput({
+                type: subtask.requiredCapability,
+                description: subtask.description ?? subtask.type,
+                output: exec.output,
+                qualityThreshold: task.qualityThreshold,
+                artifacts: exec.artifacts,
+                knownSources: [...knownSources, ...(exec.artifacts?.sources ?? [])],
+              }),
+            );
 
-      await recordPerformanceAndUpdateReputation({
-        agentId: active.agent.id,
-        taskId,
-        subtaskId: subtask.id,
-        taskType: subtask.type,
-        capabilities: [subtask.requiredCapability],
-        expectedCost: active.bidAmount,
-        actualCost: active.bidAmount,
-        expectedLatencyMs: active.agent.avgLatencyMs || actualLatencyMs,
-        actualLatencyMs,
-        qaScore: qa.verdict.score,
-        success: qa.verdict.passed,
-      });
+      // Same as above for the QA call: a verdict the deadline may have cut
+      // short (QA falls back to a structural check) must not pay or penalise.
+      if (deadlineExhausted()) {
+        subtask.attemptCount = attemptNumber - 1;
+        await stopForTime(attemptNumber - 1);
+        return;
+      }
+
+      if (!isInfraFailure(exec.source)) {
+        await recordPerformanceAndUpdateReputation({
+          agentId: active.agent.id,
+          taskId,
+          subtaskId: subtask.id,
+          taskType: subtask.type,
+          capabilities: [subtask.requiredCapability],
+          expectedCost: active.bidAmount,
+          actualCost: active.bidAmount,
+          expectedLatencyMs: active.agent.avgLatencyMs || actualLatencyMs,
+          actualLatencyMs,
+          qaScore: qa.verdict.score,
+          success: qa.verdict.passed,
+        });
+      }
 
       if (qa.verdict.passed) {
         await db.subtask.update({
@@ -545,13 +659,13 @@ export async function runTask(taskId: string) {
         });
         if (release.blocked) {
           if (await isCancelled(taskId)) return; // escrow was refunded out from under us by a concurrent cancel - not a real failure
-          await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
-          await failTask(taskId, `Payout blocked unexpectedly for subtask '${subtask.type}': ${release.reason}`);
+          // Unpaid work is not used: the escrow returns to the budget and the
+          // step is disclosed as incomplete, rather than failing the task.
+          await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "payout_blocked" });
+          await markSkipped(taskId, subtask, "safeguard", `payout blocked by the Circuit Breaker: ${release.reason}`, { output: null });
           return;
         }
 
-        agentsUsed.push(active.agent.id);
-        totalCost += active.bidAmount;
         done = true;
       } else {
         // Anchor QA Rejected on Algorand trust layer
@@ -575,7 +689,11 @@ export async function runTask(taskId: string) {
           payload: { subtaskId: subtask.id, attempt: attemptNumber, reason: qa.verdict.reason, issues: qa.verdict.issues, qaSource: qa.source },
         });
 
-        if (localAttempt < maxAttempts && !pastDeadline()) {
+        // Recording this failure may have just auto-demoted the agent (its
+        // third failure in a row, across tasks); never keep working with a
+        // demoted agent - go straight to reassignment.
+        const stillActive = (await db.agent.findUnique({ where: { id: active.agent.id } }))?.status === "ACTIVE";
+        if (localAttempt < maxAttempts && stillActive) {
           // Path A: retry the same agent with QA's specific findings as feedback.
           feedback = qa.verdict.issues.length > 0 ? `${qa.verdict.reason} Specific issues: ${qa.verdict.issues.join("; ")}` : qa.verdict.reason;
           continue;
@@ -585,17 +703,19 @@ export async function runTask(taskId: string) {
         // task budget, then the manager re-ranks every untried agent on fresh
         // data (updated reputation, real remaining budget) and reallocates
         // the escrow to the best one - repeating up to MAX_REASSIGNMENTS.
-        if (reassignments < MAX_REASSIGNMENTS && !pastDeadline()) {
+        if (reassignments < MAX_REASSIGNMENTS) {
           const failedAgentId = active.agent.id;
           await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "reassigned_to_alternate_agent" });
 
-          const alternate = await pickReplacement();
+          // No untried agent left, but this one only failed on a provider
+          // timeout/error (not on quality): give it another chance rather
+          // than skipping the step. Still bounded by MAX_REASSIGNMENTS.
+          const alternate = (await pickReplacement()) ?? (isInfraFailure(exec.source) && stillActive ? active : undefined);
           if (alternate) {
             const reassignLock = await assign(alternate);
             if (reassignLock.blocked) {
               if (await isCancelled(taskId)) return;
-              await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
-              await failTask(taskId, `Escrow lock blocked while reassigning subtask '${subtask.type}': ${reassignLock.reason}`);
+              await markSkipped(taskId, subtask, "safeguard", `escrow lock blocked by the Circuit Breaker while reassigning: ${reassignLock.reason}`, { output: null });
               return;
             }
 
@@ -631,104 +751,104 @@ export async function runTask(taskId: string) {
           // Escrow already refunded above; no replacement left. Don't abort
           // the whole task over one unstaffable step - skip it (no output,
           // no payment) and let the rest of the workflow run; the gap is
-          // disclosed in the final report (§ task-level PARTIAL handling below).
-          const reason = `failed QA and no eligible replacement agent was available: ${qa.verdict.reason}`;
-          await db.subtask.update({
-            where: { id: subtask.id },
-            data: { status: "FAILED", output: null, qaScore: qa.verdict.score, qaReason: qa.verdict.reason },
+          // disclosed in the final report.
+          await markSkipped(taskId, subtask, "quality", `failed QA and no eligible replacement agent was available: ${qa.verdict.reason}`, {
+            output: null,
+            qaScore: qa.verdict.score,
+            qaReason: qa.verdict.reason,
           });
-          await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
-          degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
-          qaExhausted = true;
-          done = true;
-          continue;
+          return;
         }
 
-        // Path C: reassignment limit hit (or the task's time budget ran out
-        // before another attempt/reassignment could fit) - same soft-skip as
-        // above, not a whole-task failure.
-        {
-          const reason = pastDeadline()
-            ? `failed QA and the task ran out of its execution time budget before another attempt could run: ${qa.verdict.reason}`
-            : `failed QA after ${maxAttempts} attempts (reassignment limit reached): ${qa.verdict.reason}`;
-          await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "qa_failed_max_attempts" });
-          await db.subtask.update({
-            where: { id: subtask.id },
-            data: { status: "FAILED", output: null, qaScore: qa.verdict.score, qaReason: qa.verdict.reason },
-          });
-          await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
-          degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
-          qaExhausted = true;
-          done = true;
-          continue;
-        }
+        // Path C: reassignment limit hit - same soft-skip, not a whole-task failure.
+        await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "qa_failed_max_attempts" });
+        await markSkipped(taskId, subtask, "quality", `failed QA after ${maxAttempts} attempts (reassignment limit reached): ${qa.verdict.reason}`, {
+          output: null,
+          qaScore: qa.verdict.score,
+          qaReason: qa.verdict.reason,
+        });
+        return;
       }
     }
-
-    // The final review has run: if it found blocking problems, send the work
-    // back to the responsible steps, re-run what depends on them, and review
-    // again (bounded). Not a task failure - unresolved issues are disclosed.
-    // Skipped if this very subtask was itself soft-skipped above (no QA
-    // verdict to act on).
-    if (subtask.requiredCapability === "quality_verification" && !qaExhausted) {
-      const outcome = await runReworkCycle({
-        taskId,
-        taskPrompt: task.prompt,
-        qualityThreshold: task.qualityThreshold,
-        reviewSubtaskId: subtask.id,
-        isCancelled: () => isCancelled(taskId),
-      });
-      if (outcome.cancelled) return;
-      reviewOutcomeBox.value = outcome;
-    }
   }
 
-  // Group subtasks into dependency levels (topological batches): everything
-  // in a level has every dependency satisfied by an earlier level, so it can
-  // run concurrently with the rest of its own level. `sequence` is a strict
-  // total order assigned at plan time, but `dependsOn` is the real DAG - most
-  // plans have 2-3 independent research/analysis steps feeding one report
-  // step, which previously ran one at a time for no reason other than the
-  // loop being written that way. That's what was turning a task that should
-  // take ~1-2x one subtask's worth of wall-clock time into 3-4x it, which is
-  // what was driving runs past the serverless time limit (see the
-  // reconciliation check in app/api/tasks/[id]/route.ts for what happens when
-  // that still occurs).
-  function buildLevels(subtasks: typeof createdSubtasks): (typeof createdSubtasks)[] {
-    const levelOf = new Map<string, number>();
-    for (const s of subtasks) {
-      const deps = JSON.parse(s.dependsOn) as string[];
-      // Safe to look up now: dependsOnSequence only ever points at earlier
-      // sequence numbers (planner.ts), and `subtasks` is sorted by sequence.
-      const level = deps.length === 0 ? 0 : Math.max(...deps.map((d) => levelOf.get(d) ?? 0)) + 1;
-      levelOf.set(s.id, level);
-    }
-    const levels: (typeof createdSubtasks)[] = [];
-    for (const s of subtasks) {
-      const level = levelOf.get(s.id)!;
-      (levels[level] ??= []).push(s);
-    }
-    return levels;
-  }
-
-  for (const level of buildLevels(createdSubtasks)) {
-    if (await isCancelled(taskId)) return;
-    await Promise.all(level.map((subtask) => processSubtask(subtask)));
-    if (await isCancelled(taskId)) return;
+  for (const level of buildLevels(subtasks)) {
+    const todo = level.filter(unfinished);
+    if (todo.length === 0) continue;
+    if (await isCancelled(taskId)) return STOPPED;
+    await Promise.all(todo.map((subtask) => processSubtask(subtask)));
+    if (await isCancelled(taskId)) return STOPPED;
     // A fatal error inside processSubtask (escrow lock blocked, payout
     // blocked, integrity check failed, ...) calls failTask and returns from
-    // just that subtask - this is the equivalent of the old code's `return`
-    // out of the whole function, now checked between levels instead.
+    // just that subtask; stop scheduling work once that has happened.
     const afterLevel = await db.task.findUniqueOrThrow({ where: { id: taskId } });
-    if (afterLevel.status === "FAILED") return;
+    if (afterLevel.status === "FAILED") return STOPPED;
+    if (yieldState.reason) return { status: "yielded", reason: yieldState.reason };
   }
 
-  if (await isCancelled(taskId)) return;
+  // The final review has run: if it found blocking problems, send the work
+  // back to the responsible steps, re-run what depends on them, and review
+  // again (bounded). Not a task failure - unresolved issues are disclosed.
+  // A round can span segments: progress is saved after every revision and
+  // the cycle resumes from it. The final outcome is persisted for the report.
+  const reviewRow = [...(await db.subtask.findMany({ where: { taskId, requiredCapability: "quality_verification" }, orderBy: { sequence: "asc" } }))].pop();
+  if (reviewRow?.status === "DONE" && !task.reviewOutcome) {
+    const outcome = await runReworkCycle({
+      taskId,
+      taskPrompt: task.prompt,
+      qualityThreshold: task.qualityThreshold,
+      reviewSubtaskId: reviewRow.id,
+      isCancelled: () => isCancelled(taskId),
+      canContinue: () => hasWindow(ATTEMPT_WINDOW_MS),
+      progress: task.reworkProgress ? (JSON.parse(task.reworkProgress) as ReworkProgress) : null,
+      saveProgress: (progress) => db.task.update({ where: { id: taskId }, data: { reworkProgress: JSON.stringify(progress) } }),
+    });
+    if (outcome.cancelled) return STOPPED;
+    if (outcome.interrupted) {
+      if (!finalSegment) return { status: "yielded", reason: "acting on the final review" };
+      // Last allowed segment: stop here and disclose what's unresolved.
+      await emitEvent(db, { taskId, actor: "manager", eventType: "REWORK_COMPLETED", payload: { rounds: outcome.rounds, resolved: false, unresolved: outcome.unresolved, reason: OUT_OF_TIME_REASON } });
+    }
+    await db.task.update({ where: { id: taskId }, data: { reviewOutcome: JSON.stringify({ ...outcome, interrupted: undefined }), reworkProgress: null } });
+  }
+
+  if (await isCancelled(taskId)) return STOPPED;
+  if (!finalSegment && !hasWindow(FINAL_PHASE_WINDOW_MS)) return { status: "yielded", reason: "assembling the final report" };
+
+  await finalizeTask(taskId);
+  return FINISHED;
+}
+
+// Assembles the deliverable from the persisted workflow state - it never
+// relies on anything held in memory, so it can run in a later segment than
+// the work it reports on.
+async function finalizeTask(taskId: string) {
+  // Every step has settled by now, so nothing may stay locked once the task
+  // is terminal; refund anything an interrupted path left behind.
+  for (const escrow of await db.agentEscrow.findMany({ where: { taskId, status: "LOCKED" } })) {
+    await refundAgentEscrow({ agentEscrowId: escrow.id, reason: "task_finalized" });
+  }
 
   const finalSubtasks = await db.subtask.findMany({ where: { taskId }, orderBy: { sequence: "asc" } });
   const finalTask = await db.task.findUniqueOrThrow({ where: { id: taskId } });
-  const avgQuality =
-    finalSubtasks.reduce((s, st) => s + (st.qaScore ?? 0), 0) / Math.max(finalSubtasks.length, 1);
+  const avgQuality = finalSubtasks.reduce((s, st) => s + (st.qaScore ?? 0), 0) / Math.max(finalSubtasks.length, 1);
+
+  // Steps that could not be completed (no agent, or QA rejected every
+  // attempt and every reassignment, or out of time). They don't abort the
+  // task by themselves: the report is built from what DID succeed and the
+  // gap is disclosed ("PARTIAL").
+  const degraded = finalSubtasks
+    .filter((st) => st.status === "FAILED")
+    .map((st) => describeIncompleteStep({ type: st.type, requiredCapability: st.requiredCapability, kind: st.skipKind, reason: st.skipReason ?? st.qaReason ?? "did not complete" }));
+
+  const typeBySubtask = new Map(finalSubtasks.map((st) => [st.id, st.type]));
+  const sequenceBySubtask = new Map(finalSubtasks.map((st) => [st.id, st.sequence]));
+  const payouts = (await db.agentEscrow.findMany({ where: { taskId, status: "RELEASED" } })).sort(
+    (a, b) => (sequenceBySubtask.get(a.subtaskId) ?? 0) - (sequenceBySubtask.get(b.subtaskId) ?? 0),
+  );
+  const agentsUsed = payouts.map((p) => p.agentId);
+  const totalCost = payouts.reduce((sum, p) => sum + p.amount, 0);
+  const reviewOutcome: ReworkOutcome | null = finalTask.reviewOutcome ? JSON.parse(finalTask.reviewOutcome) : null;
 
   const assignedIds = [...new Set(finalSubtasks.map((st) => st.assignedAgentId).filter((id): id is string => Boolean(id)))];
   const assignedAgents = assignedIds.length > 0 ? await db.agent.findMany({ where: { id: { in: assignedIds } } }) : [];
@@ -745,19 +865,18 @@ export async function runTask(taskId: string) {
     await failTask(
       taskId,
       degraded.length > 0
-        ? `No subtask produced usable output. ${degraded.map((d) => `'${d.type}' ${d.reason}`).join(" ")}`
-        : "No subtask produced usable output.",
+        ? `No step produced usable output. ${degraded.map((d) => d.summary).join(" ")}`
+        : "No step produced usable output.",
     );
     return;
   }
 
   const used = sourcesForText(reportBody, allSources);
   const sourcesSection = renderSourcesSection(used.sources, used.citedOnly ? "## Sources" : "## Research sources consulted");
-  const degradedNote =
-    degraded.length > 0
-      ? `> **Incomplete:** ${degraded.map((d) => `${d.type.replace(/_/g, " ")} (${d.reason})`).join("; ")}. The rest of the workforce completed its work; this report reflects what could be produced without it.\n\n`
-      : "";
-  const reportContent = `${degradedNote}${reportBody}${sourcesSection ? `\n\n${sourcesSection}` : ""}`;
+  // The deliverable leads; a short plain-language caveat follows it (the full
+  // reviewer detail stays in the audit trail and the details view).
+  const limitations = renderLimitationsNote(degraded);
+  const reportContent = `${reportBody}${sourcesSection ? `\n\n${sourcesSection}` : ""}${limitations ? `\n\n${limitations}` : ""}`;
 
   // Reuse the final review's numeric check when it looked at this exact report.
   const reviewArtifacts = finalSubtasks
@@ -790,7 +909,7 @@ export async function runTask(taskId: string) {
   const confidence = computeOverallConfidence({
     sources: allSources,
     numeric: numericChecks,
-    reviewScore: reviewOutcomeBox.value?.score ?? null,
+    reviewScore: reviewOutcome?.score ?? null,
   });
   await emitEvent(db, { taskId, actor: "system", eventType: "CONFIDENCE_COMPUTED", payload: confidence });
 
@@ -804,12 +923,12 @@ export async function runTask(taskId: string) {
     subtask_types: finalSubtasks.map((st) => st.type),
     incomplete_subtasks: degraded.length > 0 ? degraded : undefined,
     sources: allSources.map((src) => ({ id: src.id, title: src.title, url: src.url, kind: src.kind, cited: used.citedOnly && used.sources.includes(src) })),
-    review: reviewOutcomeBox.value
+    review: reviewOutcome
       ? {
-          approved: reviewOutcomeBox.value.approved,
-          score: reviewOutcomeBox.value.score,
-          reworkRounds: reviewOutcomeBox.value.rounds,
-          unresolvedIssues: reviewOutcomeBox.value.unresolved,
+          approved: reviewOutcome.approved,
+          score: reviewOutcome.score,
+          reworkRounds: reviewOutcome.rounds,
+          unresolvedIssues: reviewOutcome.unresolved,
         }
       : null,
     qa_summary: finalSubtasks
@@ -823,7 +942,7 @@ export async function runTask(taskId: string) {
       agentPayments: totalCost,
       dataPurchases: finalTask.budget - finalTask.remainingBudget - totalCost,
       remaining: finalTask.remainingBudget,
-      breakdown: agentsUsed.map((agentId, i) => ({ agent: agentId, subtask: finalSubtasks[i]?.type })),
+      breakdown: payouts.map((p) => ({ agent: p.agentId, subtask: typeBySubtask.get(p.subtaskId) })),
     },
   };
 
@@ -836,14 +955,14 @@ export async function runTask(taskId: string) {
 
   await storeWorkflow({
     taskId,
-    taskType,
-    prompt: task.prompt,
+    taskType: workflowSignature({ subtasks: finalSubtasks }),
+    prompt: finalTask.prompt,
     subtaskTypes: finalSubtasks.map((s) => s.type),
     agentsUsed,
     sequence: finalSubtasks.map((s) => s.id),
     dependencies: Object.fromEntries(finalSubtasks.map((s) => [s.id, JSON.parse(s.dependsOn) as string[]])),
     cost: totalCost,
-    latencyMs: Date.now() - workStart,
+    latencyMs: Date.now() - new Date(finalTask.createdAt).getTime(),
     quality: avgQuality,
     success: degraded.length === 0,
   });
@@ -861,7 +980,7 @@ export async function cancelTask(taskId: string) {
   await db.task.update({ where: { id: taskId }, data: { status: "CANCELLING" } });
 
   await db.subtask.updateMany({
-    where: { taskId, status: { in: ["EXECUTING", "AWAITING_QA", "BIDDING", "ASSIGNED"] } },
+    where: { taskId, status: { in: IN_FLIGHT_SUBTASK_STATUSES } },
     data: { status: "FAILED" },
   });
 

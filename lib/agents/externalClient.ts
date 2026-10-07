@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { validateExternalEndpoint } from "@/lib/agents/externalSecurity";
 import { decryptSecret } from "@/lib/agents/secrets";
+import { clampTimeout, DeadlineExceededError } from "@/lib/runtime/deadline";
 
 // The normalized contract every external agent must implement, called
 // through the exact same path regardless of who the provider is:
@@ -141,9 +142,10 @@ export async function executeExternalTask(
     res = await fetchWithTimeout(
       `${endpoint.base}/execute`,
       { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders(agent) }, body: JSON.stringify(payload) },
-      timeoutMs,
+      clampTimeout(timeoutMs),
     );
   } catch (err) {
+    if (err instanceof DeadlineExceededError) return { ok: false, reason: "timeout", message: "not attempted: the execution segment ran out of time" };
     const timedOut = err instanceof Error && err.name === "AbortError";
     return {
       ok: false,
