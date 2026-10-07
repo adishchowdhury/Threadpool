@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { RateAgents } from "@/components/dashboard/RateAgents";
 import { MarkdownView } from "@/components/dashboard/MarkdownView";
 import type { TaskRecord } from "@/lib/types";
 import type { NumericCheckReport } from "@/lib/manager/numericCheck";
@@ -72,6 +73,9 @@ export function TaskResult({ task }: { task: TaskRecord }) {
   const quality = typeof parsed.avg_quality === "number" ? parsed.avg_quality : null;
   const review = (parsed.review ?? null) as ReviewSummary | null;
   const confidence = (parsed.confidence ?? null) as { score: number; label: "high" | "medium" | "low"; reason: string } | null;
+  const contract = (parsed.contract_evaluation ?? null) as {
+    satisfied: boolean; requirementsCompleted: number; requirementsTotal: number; qualityScore: number; budgetUsed: number; evidenceMet: boolean | null; unmet: string[];
+  } | null;
   const incomplete = Array.isArray(parsed.incomplete_subtasks)
     ? (parsed.incomplete_subtasks as Array<{ type: string; requiredCapability: string; reason: string; summary?: string; detail?: string }>)
     : [];
@@ -194,6 +198,20 @@ export function TaskResult({ task }: { task: TaskRecord }) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      <RateAgents
+        taskId={task.id}
+        agents={[...new Map(outputs.filter((o) => o.agentId && o.agentName).map((o) => [o.agentId as string, { id: o.agentId as string, name: o.agentName as string }])).values()]}
+      />
+      {contract && (
+        <div className="rounded-lg border border-border bg-card/40 px-3 py-2 text-xs">
+          <div className="font-medium">
+            Task contract {contract.satisfied ? "satisfied" : "not fully met"} - {contract.requirementsCompleted}/{contract.requirementsTotal} requirements,
+            quality {contract.qualityScore}, budget used {contract.budgetUsed}
+            {contract.evidenceMet !== null && `, evidence ${contract.evidenceMet ? "present" : "missing"}`}
+          </div>
+          {contract.unmet.length > 0 && <ul className="mt-1 list-disc pl-4 text-muted-foreground">{contract.unmet.map((u) => <li key={u}>{u}</li>)}</ul>}
         </div>
       )}
       {parsed.numeric_checks != null && <NumericChecksView report={parsed.numeric_checks as NumericCheckReport} />}

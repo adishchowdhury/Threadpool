@@ -1,6 +1,6 @@
 import type { DiscoverableAgent } from "@/lib/discovery/types";
 import { db } from "@/lib/db/client";
-import { NO_HISTORY_SCORE, applyValuePreference, scoreCandidates, type ScoreBreakdown } from "@/lib/manager/scoring";
+import { applyValuePreference, blendHistory, scoreCandidates, type ScoreBreakdown } from "@/lib/manager/scoring";
 
 export interface RankedCandidate {
   agent: DiscoverableAgent;
@@ -19,6 +19,7 @@ export async function rankCandidates(params: {
   requiredCapability: string;
   taskType: string;
   qualityThreshold?: number;
+  domain?: string;
 }): Promise<RankedCandidate[]> {
   const { candidates, bids, requiredCapability, taskType } = params;
   if (candidates.length === 0) return [];
@@ -28,11 +29,15 @@ export async function rankCandidates(params: {
   const history = new Map<string, number>();
   await Promise.all(
     candidates.map(async (a) => {
-      const [total, success] = await Promise.all([
-        db.agentPerformance.count({ where: { agentId: a.id, taskType } }),
-        db.agentPerformance.count({ where: { agentId: a.id, taskType, success: true } }),
-      ]);
-      history.set(a.id, total > 0 ? (success / total) * 100 : NO_HISTORY_SCORE);
+      const ratio = async (where: Record<string, unknown>) => {
+        const [total, success] = await Promise.all([
+          db.agentPerformance.count({ where: { agentId: a.id, ...where } }),
+          db.agentPerformance.count({ where: { agentId: a.id, ...where, success: true } }),
+        ]);
+        return total > 0 ? (success / total) * 100 : null;
+      };
+      const domain = params.domain && params.domain !== "general" ? params.domain : null;
+      history.set(a.id, blendHistory(await ratio({ taskType }), domain ? await ratio({ domain }) : null));
     }),
   );
 

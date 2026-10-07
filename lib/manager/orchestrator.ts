@@ -7,6 +7,9 @@ import { runReworkCycle, type ReworkOutcome, type ReworkProgress } from "@/lib/m
 import { hashText } from "@/lib/capabilities/review";
 import { renderSourcesSection, sourcesForText, stripInvalidCitations, stripModelSourceList } from "@/lib/capabilities/sources";
 import { discoverAgents } from "@/lib/discovery";
+import { findContradictions, describeContradiction } from "@/lib/manager/contradictions";
+import type { DataSensitivity } from "@/lib/discovery/access";
+import { buildTaskContract, evaluateContract, type TaskContract } from "@/lib/manager/contract";
 import { filterCandidatesStaged } from "@/lib/manager/filter";
 import { collectBids } from "@/lib/manager/bidding";
 import { rankCandidates } from "@/lib/manager/rank";
@@ -106,7 +109,16 @@ function buildLevels<T extends { id: string; dependsOn: string }>(subtasks: T[])
   return levels.filter(Boolean);
 }
 
-async function planTask(task: { id: string; prompt: string; budget: number; qualityThreshold: number }, floor: Map<string, number>) {
+function parseIdList(raw: string | null | undefined): string[] {
+  try {
+    const v = JSON.parse(raw ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+async function planTask(task: { id: string; prompt: string; budget: number; qualityThreshold: number; deadline?: Date | null; dataSensitivity?: DataSensitivity }, floor: Map<string, number>) {
   const taskId = task.id;
   // A segment killed mid-planning can leave a partial plan behind. Nothing
   // has been hired or paid for at this stage, so it is safe to start over.
@@ -172,7 +184,18 @@ async function planTask(task: { id: string; prompt: string; budget: number; qual
   }
 
   if (await isCancelled(taskId)) return;
-  await db.task.update({ where: { id: taskId }, data: { status: "IN_PROGRESS" } });
+
+  // Fix what "success" means before anything is hired; evaluated at completion.
+  const contract = buildTaskContract({
+    objective: plan.summary,
+    subtasks: plan.subtasks,
+    qualityThreshold: task.qualityThreshold,
+    budget: task.budget,
+    deadline: task.deadline ?? null,
+    dataSensitivity: task.dataSensitivity ?? "PUBLIC",
+  });
+  await db.task.update({ where: { id: taskId }, data: { status: "IN_PROGRESS", contract: JSON.stringify(contract) } });
+  await emitEvent(db, { taskId, actor: "manager", eventType: "CONTRACT_CREATED", payload: contract });
 }
 
 // A previous segment that was killed (or crashed) mid-subtask leaves escrow
@@ -259,19 +282,39 @@ export async function runTask(taskId: string, opts: { finalSegment?: boolean } =
     await db.subtask.update({ where: { id: subtask.id }, data: { status: "BIDDING" } });
 
     await reinstateForCapability(subtask.requiredCapability, taskId);
-    const discovered = await discoverAgents(subtask.requiredCapability);
+    const discovery = await discoverAgents(subtask.requiredCapability, {
+      organizationId: currentTask.organizationId ?? null,
+      dataSensitivity: currentTask.dataSensitivity ?? "PUBLIC",
+      approvedAgentIds: parseIdList(currentTask.approvedAgentIds),
+    });
+    const discovered = discovery.agents;
     await emitEvent(db, {
       taskId,
       actor: "manager",
       eventType: "AGENTS_DISCOVERED",
-      payload: { subtaskId: subtask.id, count: discovered.length, agentIds: discovered.map((a) => a.id) },
+      payload: {
+        subtaskId: subtask.id,
+        count: discovered.length,
+        matched: discovery.matched,
+        excluded: discovery.excluded,
+        dataSensitivity: currentTask.dataSensitivity ?? "PUBLIC",
+        approvedAgents: parseIdList(currentTask.approvedAgentIds).length,
+        agentIds: discovered.map((a) => a.id),
+      },
     });
 
     // Hold back enough budget to staff every later, still-unfinished step at
     // the market floor.
     const reserve = reserveForLaterSteps(subtasks.filter(unfinished), subtask.sequence, floor);
     const spendCap = Math.max(0, currentTask.remainingBudget - reserve);
-    const { eligible: filtered, stages } = filterCandidatesStaged(discovered, currentTask.remainingBudget, currentTask.qualityThreshold, spendCap);
+    const { eligible: filtered, stages: poolStages } = filterCandidatesStaged(discovered, currentTask.remainingBudget, currentTask.qualityThreshold, spendCap);
+    // The pool above is already access-controlled; show the funnel from the
+    // true capability-match count through the tenant/data-sensitivity gate.
+    const stages = [
+      { stage: "capability match", count: discovery.matched },
+      { stage: "tenant & data access", count: discovered.length },
+      ...poolStages.slice(1),
+    ];
     await emitEvent(db, {
       taskId,
       actor: "manager",
@@ -291,6 +334,7 @@ export async function runTask(taskId: string, opts: { finalSegment?: boolean } =
       requiredCapability: subtask.requiredCapability,
       taskType: subtask.type,
       qualityThreshold: currentTask.qualityThreshold,
+      domain: currentTask.domain,
     });
 
     await emitEvent(db, {
@@ -329,6 +373,7 @@ export async function runTask(taskId: string, opts: { finalSegment?: boolean } =
         bids: new Map(candidates.map((c) => [c.agent.id, c.bidAmount])),
         requiredCapability: subtask.requiredCapability,
         taskType: subtask.type,
+        domain: currentTask.domain,
       });
       return reranked[0];
     }
@@ -571,7 +616,7 @@ export async function runTask(taskId: string, opts: { finalSegment?: boolean } =
       // Sarvam is NOT configured at all, local-fallback output IS the
       // intended demo-mode path, so it still goes through QA's own
       // structural fallback check as normal.
-      const qa =
+      let qa =
         isInfraFailure(exec.source) || exec.source === "external_error"
           ? {
               verdict: {
@@ -598,6 +643,32 @@ export async function runTask(taskId: string, opts: { finalSegment?: boolean } =
                 knownSources: [...knownSources, ...(exec.artifacts?.sources ?? [])],
               }),
             );
+
+      // Cross-agent consistency: an output that passed its own QA but states a
+      // figure that materially conflicts with an upstream agent's figure for
+      // the same quantity is rejected, so the normal retry / reassignment path
+      // runs instead of the conflict reaching the report unnoticed.
+      if (qa.verdict.passed && upstream.length > 0) {
+        const conflicts = findContradictions(exec.output, upstream.map((u) => ({ type: u.type, output: u.output })));
+        if (conflicts.length > 0) {
+          const issues = conflicts.map(describeContradiction);
+          await emitEvent(db, {
+            taskId,
+            actor: "qa",
+            eventType: "CONTRADICTION_DETECTED",
+            payload: { subtaskId: subtask.id, agentId: active.agent.id, contradictions: conflicts },
+          });
+          qa = {
+            ...qa,
+            verdict: {
+              passed: false,
+              score: Math.min(qa.verdict.score, 60),
+              reason: "Output contradicts an upstream agent's figures; it was not accepted.",
+              issues,
+            },
+          };
+        }
+      }
 
       // Same as above for the QA call: a verdict the deadline may have cut
       // short (QA falls back to a structural check) must not pay or penalise.
@@ -913,7 +984,25 @@ async function finalizeTask(taskId: string) {
   });
   await emitEvent(db, { taskId, actor: "system", eventType: "CONFIDENCE_COMPUTED", payload: confidence });
 
+  // Did the work actually meet the contract fixed at planning time?
+  let contractEvaluation: ReturnType<typeof evaluateContract> | null = null;
+  if (finalTask.contract) {
+    try {
+      contractEvaluation = evaluateContract(JSON.parse(finalTask.contract) as TaskContract, {
+        subtasks: finalSubtasks,
+        qualityScore: reviewOutcome?.score ?? avgQuality,
+        budgetUsed: finalTask.budget - finalTask.remainingBudget,
+        finishedAt: new Date(),
+        sourceCount: allSources.length,
+      });
+      await emitEvent(db, { taskId, actor: "system", eventType: "CONTRACT_EVALUATED", payload: contractEvaluation });
+    } catch {
+      contractEvaluation = null; // a malformed stored contract must never block delivery
+    }
+  }
+
   const finalOutput = {
+    contract_evaluation: contractEvaluation,
     content: reportContent,
     report_from: report.reportType,
     worker_outputs: report.workerOutputs,

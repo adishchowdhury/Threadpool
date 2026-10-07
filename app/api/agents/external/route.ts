@@ -44,6 +44,8 @@ export async function POST(request: Request) {
       externalAuthSecretEncrypted: data.authToken ? encryptSecret(data.authToken) : null,
       lifecycleStatus: "PENDING",
       listed: true,
+      visibility: "PRIVATE", // never public before it has been benchmarked
+      visibilityPreference: data.visibility,
     },
   });
   await ensureAgentWallet(agent.id);

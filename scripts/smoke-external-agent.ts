@@ -99,7 +99,7 @@ async function main() {
   }
 
   console.log(`\n=== 3. Discovery includes the external agent alongside built-ins ===`);
-  const candidates = await discoverAgents("market_research");
+  const candidates = (await discoverAgents("market_research", { organizationId: provider.id, dataSensitivity: "PUBLIC" })).agents;
   console.log(`discovered ${candidates.length} candidates: ${candidates.map((c) => `${c.name}${c.isExternal ? " (external)" : ""}`).join(", ")}`);
 
   console.log(`\n=== 4. Real task #1 (cold start) ===`);

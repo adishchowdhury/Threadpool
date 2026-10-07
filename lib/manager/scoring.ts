@@ -17,6 +17,14 @@ export const WEIGHTS = {
 // historicalSimilarity for an agent with no recorded history on a task type.
 export const NO_HISTORY_SCORE = 30;
 
+// Blends an agent's success ratio on this task type with its success ratio in
+// this task's domain (both 0-100, null = no history). Domain experience counts
+// as much as task-type experience; with neither, the agent gets NO_HISTORY_SCORE.
+export function blendHistory(taskTypeRatio: number | null, domainRatio: number | null): number {
+  const parts = [taskTypeRatio, domainRatio].filter((v): v is number => v !== null);
+  return parts.length > 0 ? parts.reduce((a, b) => a + b, 0) / parts.length : NO_HISTORY_SCORE;
+}
+
 // Cold-start handling. An agent's stats are only as trustworthy as the number
 // of measured samples behind them, so each stat is shrunk toward a prior in
 // proportion to how little we know: effective = (n*observed + K*prior)/(n+K).

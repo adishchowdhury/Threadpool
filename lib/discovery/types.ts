@@ -1,3 +1,5 @@
+import type { AgentVisibility } from "@/lib/discovery/access";
+
 export interface DiscoverableAgent {
   id: string;
   name: string;
@@ -21,6 +23,7 @@ export interface DiscoverableAgent {
   isExternal: boolean;
   providerId: string | null;
   providerName: string | null;
+  visibility?: AgentVisibility;
 }
 
 // Adapter-based agent marketplace. LocalRegistryProvider always works with

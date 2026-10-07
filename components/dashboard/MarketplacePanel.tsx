@@ -8,6 +8,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AgentProfileDialog } from "@/components/dashboard/AgentProfileDialog";
+import { ArenaView } from "@/components/dashboard/ArenaView";
 import type { AgentRecord } from "@/lib/types";
 import { scoreCandidates } from "@/lib/manager/scoring";
 import { tokenRateLabel } from "@/lib/economy/tokenValue";
@@ -55,6 +57,8 @@ export function MarketplacePanel({
   onOpenChange: (open: boolean) => void;
 }) {
   const [capability, setCapability] = useState<string>("all");
+  const [view, setView] = useState<"registry" | "arena">("registry");
+  const [profileId, setProfileId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"score" | "price" | "reputation">("score");
 
   // Retired listings (no longer in the roster) can't be hired, so don't show them.
@@ -107,6 +111,20 @@ export function MarketplacePanel({
         </DialogClose>
 
         <div className="flex flex-wrap items-center gap-3 px-8 pb-5">
+          <div className="flex rounded-md border border-panel-border p-0.5 text-[13px]" role="tablist">
+            {(["registry", "arena"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => setView(v)}
+                className={cn("rounded px-3 py-1 capitalize transition-colors", view === v ? "bg-panel-elevated text-panel-foreground" : "text-panel-muted hover:text-panel-foreground")}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
           <Select value={capability} onValueChange={(v) => setCapability(v ?? "all")}>
             <SelectTrigger className="h-9 w-56 text-[13px]">
               <SelectValue placeholder="Filter by capability">
@@ -123,7 +141,7 @@ export function MarketplacePanel({
             </SelectContent>
           </Select>
 
-          <Select value={sortBy} onValueChange={(v) => setSortBy((v ?? "score") as typeof sortBy)}>
+          {view === "registry" && <Select value={sortBy} onValueChange={(v) => setSortBy((v ?? "score") as typeof sortBy)}>
             <SelectTrigger className="h-9 w-48 text-[13px]">
               <SelectValue placeholder="Sort by">
                 {(value: string) => `Sort: ${value === "score" ? "routing score" : value}`}
@@ -134,14 +152,19 @@ export function MarketplacePanel({
               <SelectItem value="price">Sort: price</SelectItem>
               <SelectItem value="reputation">Sort: reputation</SelectItem>
             </SelectContent>
-          </Select>
+          </Select>}
 
           <span className="ml-auto text-xs tabular-nums text-panel-muted">
             {rows.length} {rows.length === 1 ? "agent" : "agents"}
           </span>
         </div>
 
-        <ScrollArea className="max-h-[55vh] border-t border-panel-border">
+        {view === "arena" && (
+          <div className="border-t border-panel-border">
+            <ArenaView key={capability === "all" ? "first" : capability} capability={capability === "all" ? (capabilities[0] ?? "market_research") : capability} onOpenAgent={setProfileId} />
+          </div>
+        )}
+        {view === "registry" && <ScrollArea className="max-h-[55vh] border-t border-panel-border">
           {/* Plain <table>: the shared Table wrapper adds its own overflow container, which would stop the header sticking. */}
           <table data-slot="table" className="w-full min-w-215 caption-bottom text-sm">
             <TableHeader className="[&_tr]:border-b-0">
@@ -172,7 +195,7 @@ export function MarketplacePanel({
                         <StatusDot status={agent.status} />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="truncate text-sm leading-tight font-semibold text-panel-foreground">{agent.name}</span>
+                            <button type="button" onClick={() => setProfileId(agent.id)} title="View full profile" className="truncate text-left text-sm leading-tight font-semibold text-panel-foreground underline-offset-2 hover:underline">{agent.name}</button>
                             {agent.model && (
                               <span
                                 title="Model tier"
@@ -182,6 +205,11 @@ export function MarketplacePanel({
                               </span>
                             )}
                           </div>
+                          {agent.visibility && (
+                            <Badge variant="outline" className="mt-1 h-4.5 rounded-sm border-panel-border bg-transparent px-1 text-[10px] font-normal">
+                              {agent.visibility === "CERTIFIED" ? "Kraven Certified" : agent.visibility === "PRIVATE" ? "Private" : "Marketplace"}
+                            </Badge>
+                          )}
                           {agent.isExternal ? (
                             <div className="mt-1 max-w-64 truncate text-xs text-panel-muted">
                               <Badge variant="outline" className="h-4.5 rounded-sm border-panel-border bg-transparent px-1 text-[10px] font-normal">
@@ -237,12 +265,13 @@ export function MarketplacePanel({
               )}
             </TableBody>
           </table>
-        </ScrollArea>
+        </ScrollArea>}
 
         <p className="border-t border-panel-border px-8 py-3.5 text-xs text-panel-muted">
           Prices are in tokens ({tokenRateLabel()}). Agents not yet measured show <span aria-hidden>&mdash;</span> until they complete a run.
         </p>
       </DialogContent>
+      <AgentProfileDialog key={profileId ?? "none"} agentId={profileId} open={profileId !== null} onOpenChange={(o) => !o && setProfileId(null)} />
     </Dialog>
   );
 }

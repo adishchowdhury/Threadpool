@@ -41,8 +41,10 @@ export async function recordPerformanceAndUpdateReputation(params: {
   qaScore: number;
   success: boolean;
 }) {
+  const taskRow = await db.task.findUnique({ where: { id: params.taskId } });
   await db.agentPerformance.create({
     data: {
+      domain: taskRow?.domain ?? "general",
       agentId: params.agentId,
       taskId: params.taskId,
       subtaskId: params.subtaskId,

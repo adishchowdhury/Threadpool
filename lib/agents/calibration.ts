@@ -1,4 +1,5 @@
 import { db } from "@/lib/db/client";
+import { evaluatePublish } from "@/lib/discovery/access";
 import { executeSubtask } from "@/lib/manager/worker";
 import { verifySubtaskOutput } from "@/lib/manager/qa";
 import { refreshAgentStats } from "@/lib/agents/stats";
@@ -252,6 +253,13 @@ export async function calibrateExternalAgent(agentId: string): Promise<ExternalC
     data: { lifecycleStatus, status: passed ? "ACTIVE" : "INACTIVE" },
   });
   await refreshAgentStats(agentId);
+
+  // Owner asked for the marketplace: now that Kraven has measured the agent,
+  // honour it (same gate as manual publishing).
+  const after = await db.agent.findUnique({ where: { id: agentId } });
+  if (after && after.visibilityPreference === "MARKETPLACE" && evaluatePublish(after).ok) {
+    await db.agent.update({ where: { id: agentId }, data: { visibility: "MARKETPLACE" } });
+  }
 
   return { runs, passed, lifecycleStatus };
 }

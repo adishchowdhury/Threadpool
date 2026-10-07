@@ -51,6 +51,7 @@ export interface AgentRecord {
   providerId: string | null;
   providerName: string | null;
   lifecycleStatus: string | null;
+  visibility?: "CERTIFIED" | "PRIVATE" | "MARKETPLACE";
 }
 
 export interface SecurityEventRecord {

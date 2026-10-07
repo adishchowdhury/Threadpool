@@ -20,6 +20,8 @@ export const registerExternalAgentSchema = z.object({
   endpoint: z.string().url().max(500),
   price: z.number().int().positive().max(1000),
   modelTier: z.enum(MODEL_TIERS).default("standard"),
+  // "MARKETPLACE" = publish for every org, but only after Kraven benchmarks it.
+  visibility: z.enum(["PRIVATE", "MARKETPLACE"]).default("PRIVATE"),
   // The secret Kraven should send back to the provider's own endpoint
   // (Authorization: Bearer <this>). Optional - some demo/test endpoints
   // require no auth at all.

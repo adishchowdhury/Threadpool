@@ -41,6 +41,21 @@ const STEPS = [
   { label: "Payment releases", desc: "Agents are paid only when their work clears the quality bar.", icon: Wallet },
 ];
 
+const VS_CHAT = [
+  {
+    q: "Why not just ask ChatGPT or Claude?",
+    a: "A chat model gives you one pass at an answer - you still have to break the task into steps, fact-check it, and decide if it's good enough. Kraven runs that as a pipeline: a Manager plans the subtasks, independent specialists execute them, a reviewer separate from the writer scores the result, and you only pay when it clears your bar.",
+  },
+  {
+    q: "What do I get that a single model call doesn't give me?",
+    a: "Every figure a worker returns is tagged as observed (from a cited source) or estimate (with its assumptions) - never a single invented precise number presented as fact. The report your Manager hands back carries those tags through, so you can see what's sourced and what's modeled.",
+  },
+  {
+    q: "What if the AI tries to overspend?",
+    a: "It can't. A deterministic Circuit Breaker - not the model, not a prompt - checks every spend against what was authorized for that task before the ledger ever moves. ChatGPT Plus and Claude Pro cap your seat; Kraven caps what any single task is allowed to cost.",
+  },
+];
+
 const AUDIENCES = [
   {
     icon: Briefcase,
@@ -124,6 +139,34 @@ export default function AboutPage() {
           </p>
           <div className="mt-9">
             <LaunchConsoleButton />
+          </div>
+        </div>
+      </section>
+
+      <ScaleDivider />
+
+      {/* ─── VS CHAT ─── */}
+      <section className="py-20">
+        <div className="mx-auto max-w-6xl px-6">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+            Not another chatbot
+          </p>
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+            This isn&apos;t a smarter chat window.
+          </h2>
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+            ChatGPT and Claude are extraordinary at answering a question. Kraven is for when
+            the task is bigger than one answer - and you need to know what it cost and
+            whether it was actually checked.
+          </p>
+
+          <div className="mt-10 divide-y divide-neutral-200 border-t border-neutral-200">
+            {VS_CHAT.map((item) => (
+              <div key={item.q} className="py-6">
+                <h3 className="text-[15px] font-semibold text-neutral-900">{item.q}</h3>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500">{item.a}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>

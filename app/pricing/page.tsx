@@ -11,6 +11,10 @@ export const metadata = {
 
 const FAQ = [
   {
+    q: "I already pay for ChatGPT Plus or Claude Pro - why would I pay for this too?",
+    a: "Those subscriptions cap what you can ask, not what a task costs or whether the answer was checked. Kraven's budget is per task - it caps what the AI workforce is allowed to spend to finish one deliverable, runs an independent QA pass before anything is paid, and never lets an agent spend past what it was authorized for. You're paying for governed, verified multi-agent work, not another seat at a chat window.",
+  },
+  {
     q: "Is Kraven really free right now?",
     a: "Yes. Every plan - including Growth and Scale features - is unlocked at no cost while Kraven is in early access. We'll announce billing well in advance before any plan starts charging.",
   },

@@ -46,6 +46,10 @@ export const EVENT_TYPES = [
   "AGENT_AUTO_DEMOTED",
   "AGENT_REACTIVATED",
   "WORKFLOW_CONTINUED",
+  "CONTRADICTION_DETECTED",
+  "CONTRACT_CREATED",
+  "CONTRACT_EVALUATED",
+  "AGENT_PUBLISHED",
 ] as const;
 
 export type KravenEventType = (typeof EVENT_TYPES)[number];

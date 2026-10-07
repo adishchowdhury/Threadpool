@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { AgentProfileDialog } from "@/components/dashboard/AgentProfileDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -57,6 +58,8 @@ interface ExternalAgent {
   endpoint: string | null;
   status: string;
   lifecycleStatus: string | null;
+  visibility?: string | null;
+  visibilityPreference?: string | null;
   avgQuality: number;
   avgLatencyMs: number;
   successRate: number;
@@ -173,6 +176,7 @@ function RegisterAgentForm({ onDone }: { onDone: () => void }) {
     setPriceInput(unitValueFromTokens(price, unit));
   }
   const [modelTier, setModelTier] = useState<string>("standard");
+  const [visibility, setVisibilityChoice] = useState<"PRIVATE" | "MARKETPLACE">("PRIVATE");
   const [authToken, setAuthToken] = useState("");
   const [showAuth, setShowAuth] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -198,6 +202,7 @@ function RegisterAgentForm({ onDone }: { onDone: () => void }) {
           endpoint,
           price,
           modelTier,
+          visibility,
           authToken: authToken || undefined,
         }),
       });
@@ -332,6 +337,24 @@ function RegisterAgentForm({ onDone }: { onDone: () => void }) {
         </Select>
       </div>
 
+      <div className="space-y-1.5">
+        <FieldLabel htmlFor="agent-visibility">Who can use this agent</FieldLabel>
+        <Select value={visibility} onValueChange={(v) => setVisibilityChoice((v ?? "PRIVATE") as "PRIVATE" | "MARKETPLACE")}>
+          <SelectTrigger id="agent-visibility" className="h-8 w-72">
+            <SelectValue>{(v: string) => (v === "MARKETPLACE" ? "Everyone (public marketplace)" : "Only my organization")}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PRIVATE">Only my organization</SelectItem>
+            <SelectItem value="MARKETPLACE">Everyone (public marketplace)</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {visibility === "MARKETPLACE"
+            ? "It stays private until Kraven benchmarks it and it passes; then it is published automatically."
+            : "Only your organization's tasks can use it. You can change this any time."}
+        </p>
+      </div>
+
       {/* Everything below is genuinely optional, so it starts collapsed
           rather than competing with the required fields above. */}
       <div className="border-t border-border/70 pt-4">
@@ -383,6 +406,7 @@ function AgentRow({ agent, onChanged }: { agent: ExternalAgent; onChanged: () =>
   const [busy, setBusy] = useState<string | null>(null);
   const [checklist, setChecklist] = useState<Record<string, boolean> | null>(null);
   const [calibrating, setCalibrating] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [coverage, setCoverage] = useState<Array<{ capability: string; qaScore: number | null; calibrated: boolean }> | null>(null);
 
   async function testConnection() {
@@ -428,6 +452,30 @@ function AgentRow({ agent, onChanged }: { agent: ExternalAgent; onChanged: () =>
     } catch {
       toast.error("Couldn't reach the server.");
       setCalibrating(false);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function setVisibility(visibility: "PRIVATE" | "MARKETPLACE") {
+    setBusy("publish");
+    try {
+      const res = await fetch(`/api/agents/external/${agent.id}/publish`, {
+        method: "POST",
+        headers: { ...(await authHeader()), "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Couldn't change visibility.");
+        return;
+      }
+      toast.success(
+        visibility === "PRIVATE" ? "Agent is now private to your organization." : data.pending ? `Saved - it will be published once it passes benchmarking. (${data.pending})` : "Published to the marketplace.",
+      );
+      onChanged();
+    } catch {
+      toast.error("Couldn't reach the server.");
     } finally {
       setBusy(null);
     }
@@ -536,9 +584,33 @@ function AgentRow({ agent, onChanged }: { agent: ExternalAgent; onChanged: () =>
         <Button size="sm" variant="outline" onClick={testConnection} disabled={busy !== null}>
           {busy === "test" ? <Loader2 className="size-3.5 animate-spin" /> : "Test connection"}
         </Button>
+        <Button size="sm" variant="outline" onClick={() => setProfileOpen(true)}>
+          Performance
+        </Button>
         <Button size="sm" variant="outline" onClick={calibrate} disabled={busy !== null || calibrating}>
           {busy === "calibrate" || calibrating ? <Loader2 className="size-3.5 animate-spin" /> : "Calibrate"}
         </Button>
+        <Select
+          value={agent.visibilityPreference === "MARKETPLACE" ? "MARKETPLACE" : "PRIVATE"}
+          onValueChange={(v) => v && setVisibility(v as "PRIVATE" | "MARKETPLACE")}
+          disabled={busy !== null}
+        >
+          <SelectTrigger aria-label="Who can use this agent" className="h-8 w-56 text-xs">
+            <SelectValue>
+              {(v: string) =>
+                v === "MARKETPLACE"
+                  ? agent.visibility === "MARKETPLACE"
+                    ? "Visible to everyone"
+                    : "Everyone (pending benchmark)"
+                  : "Only my organization"
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PRIVATE">Only my organization</SelectItem>
+            <SelectItem value="MARKETPLACE">Everyone (public marketplace)</SelectItem>
+          </SelectContent>
+        </Select>
         <div className="ml-auto flex items-center gap-1.5">
           {agent.lifecycleStatus === "PAUSED" || agent.lifecycleStatus === "SUSPENDED" ? (
             <Button size="sm" variant="ghost" onClick={() => applyAction("reactivate")} disabled={busy !== null}>
@@ -554,6 +626,7 @@ function AgentRow({ agent, onChanged }: { agent: ExternalAgent; onChanged: () =>
           </Button>
         </div>
       </div>
+      <AgentProfileDialog key={agent.id} agentId={agent.id} open={profileOpen} onOpenChange={setProfileOpen} />
     </div>
   );
 }

@@ -22,6 +22,9 @@ import {
   Users,
   LayoutGrid,
   Tags,
+  Check,
+  X,
+  FileCheck2,
 } from "lucide-react";
 import { ScaleDivider, VerticalScaleBars } from "./ScaleDivider";
 import { HeroSimulation } from "./HeroSimulation";
@@ -57,6 +60,36 @@ const WORKFORCE_STATS = [
 ];
 
 const CAPABILITY_CHIPS = CAPABILITY_IDS.map((id) => CAPABILITY_CATALOG[id].label);
+
+const COMPARISON_ROWS = [
+  "Splits the task into a research → analysis → writing → QA pipeline for you",
+  "Every number comes back tagged as observed (cited) or estimate",
+  "A hard budget is enforced before any work starts - not just a token limit",
+  "A reviewer independent from the writer scores the output before you see it",
+  "Failing work is never paid and never counted toward reputation",
+  "Every task leaves an audit trail: who did what, what it cost, how it was checked",
+];
+
+const EXAMPLE_TASKS = [
+  {
+    title: "Fintech market-entry report",
+    budget: "50 tokens",
+    pipeline: "Web research → Market + competitive + financial analysis → Risk → Report → QA",
+    outcome: "A cited, investment-style report with segments, unit economics, and a risk section - not a single ungrounded answer.",
+  },
+  {
+    title: "Competitor pricing & positioning scan",
+    budget: "~15 tokens",
+    pipeline: "Competitive analysis → Data extraction → Review",
+    outcome: "A structured comparison table of named competitors on price, features, and positioning.",
+  },
+  {
+    title: "Regulatory exposure check before launch",
+    budget: "~20 tokens",
+    pipeline: "Regulatory & compliance → Risk assessment → Review",
+    outcome: "A sourced rundown of applicable rules and licensing requirements for the target market.",
+  },
+];
 
 const FEATURES = [
   {
@@ -163,32 +196,47 @@ export function HomePage() {
       {/* ─── HERO ─── */}
       <section className="relative overflow-hidden">
         <div className="relative mx-auto max-w-6xl px-4 pt-14 pb-16 sm:px-6 sm:pt-20 sm:pb-24 lg:pt-24">
-          <div className="flex flex-col items-start gap-8 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-            <h1 className="max-w-2xl text-left text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
-              Give your agents a{" "}
+          <div className="flex flex-col items-center gap-8 text-center">
+            <h1 className="max-w-4xl text-[22px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 sm:text-[2rem] sm:whitespace-nowrap lg:text-[2.3rem] xl:text-[2.5rem]">
+              Hire an AI{" "}
               <span className="relative inline-block whitespace-nowrap">
                 <span
                   aria-hidden
                   className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] -rotate-1 bg-amber-300/80"
                 />
                 <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">
-                  budget
+                  workforce
                 </span>
               </span>
-              <br />
-              Not a{" "}
+              {" "}- paid only when it{" "}
               <span className="relative inline-block whitespace-nowrap">
                 <span
                   aria-hidden
                   className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] rotate-1 bg-amber-300/80"
                 />
                 <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">
-                  blank check
+                  passes QA
+                </span>
+
+                {/* v1 scope tag */}
+                <span className="anim-spring-pop absolute left-full bottom-[calc(100%+0.625rem)] inline-flex items-center whitespace-nowrap border border-neutral-200 bg-white px-2.5 py-1 font-mono text-[9px] font-normal not-italic uppercase tracking-wider text-neutral-500 shadow-sm">
+                  <span
+                    aria-hidden
+                    className="absolute -bottom-1.25 left-3 size-2 rotate-45 border-r border-b border-neutral-200 bg-white"
+                  />
+                  v1 - text in, text out
                 </span>
               </span>
+              .
             </h1>
 
-            <div className="flex w-full flex-col items-start gap-3 sm:w-auto sm:shrink-0 sm:flex-row sm:flex-wrap sm:items-center">
+            <p className="max-w-xl text-[15px] leading-relaxed text-neutral-500 sm:text-base">
+              Kraven discovers, ranks, and hires agents for your task from a live
+              marketplace - then locks your budget in escrow and releases it
+              only after an independent reviewer approves the work.
+            </p>
+
+            <div className="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-center">
               <Link
                 href="/dashboard"
                 onClick={handleLaunch}
@@ -317,6 +365,9 @@ export function HomePage() {
               </div>
             ))}
           </div>
+          <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+            v1 - text in, text out
+          </p>
         </div>
 
         <div className="mx-auto mt-12 max-w-6xl border border-neutral-200">
@@ -377,12 +428,86 @@ export function HomePage() {
 
       <ScaleDivider />
 
+      {/* ─── DIFFERENTIATION ─── */}
+      <section id="why-not-chat" className="py-20">
+        <div className="mx-auto max-w-6xl px-6">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+            03 - Not a chat window
+          </p>
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+            ChatGPT answers. Kraven delivers, verified, under a budget.
+          </h2>
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+            A chat tab gives you one model&apos;s best guess, and you&apos;re the one who has
+            to decompose the task, check the numbers, and decide if it&apos;s good enough.
+            Kraven runs that whole loop as a governed, paid pipeline - and only charges you
+            for work that actually passes.
+          </p>
+
+          <div className="mt-10 border border-neutral-200">
+            <div className="hidden grid-cols-[1fr_auto_auto] border-b border-neutral-200 bg-neutral-50 px-5 py-3 font-mono text-[11px] uppercase tracking-wider text-neutral-400 sm:grid">
+              <span />
+              <span className="w-32 px-4 text-center">ChatGPT / Claude chat</span>
+              <span className="w-32 px-4 text-center">Kraven</span>
+            </div>
+            {COMPARISON_ROWS.map((row, i) => (
+              <div
+                key={row}
+                className={[
+                  "grid grid-cols-[1fr_auto] items-center gap-3 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:border-neutral-200",
+                  i !== 0 ? "border-t border-neutral-200" : "",
+                ].join(" ")}
+              >
+                <p className="text-[13.5px] leading-snug text-neutral-700">{row}</p>
+                <span className="hidden w-32 items-center justify-center px-4 sm:flex">
+                  <X className="size-4 text-neutral-300" strokeWidth={2.25} />
+                </span>
+                <span className="flex w-10 items-center justify-center sm:w-32 sm:px-4">
+                  <Check className="size-4 text-emerald-600" strokeWidth={2.5} />
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mx-auto mt-16 max-w-6xl px-6">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+            What people actually run
+          </p>
+          <h3 className="mt-3 max-w-xl text-xl font-semibold tracking-tight text-neutral-900 sm:text-2xl">
+            Real tasks, real budgets.
+          </h3>
+
+          <div className="mt-8 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+            {EXAMPLE_TASKS.map((ex) => (
+              <div key={ex.title} className="flex flex-col gap-3 bg-white p-7">
+                <div className="flex items-start justify-between gap-3">
+                  <h4 className="text-[15px] font-semibold text-neutral-900">{ex.title}</h4>
+                  <FileCheck2 className="mt-0.5 size-4 shrink-0 text-neutral-300" strokeWidth={1.75} />
+                </div>
+                <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+                  Budget: {ex.budget}
+                </p>
+                <p className="text-[12px] leading-relaxed text-neutral-500">{ex.pipeline}</p>
+                <p className="mt-1 text-[13.5px] leading-relaxed text-neutral-600">{ex.outcome}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 text-[12px] text-neutral-400">
+            Example pipelines and budgets shown for illustration - the Manager composes the
+            actual workforce and cost per task at run time.
+          </p>
+        </div>
+      </section>
+
+      <ScaleDivider />
+
       {/* ─── SECURITY ─── */}
       <section id="security" className="py-20">
         <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-2 lg:items-center">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
-              03 - Security
+              04 - Security
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
               Rogue agents don&apos;t move money.

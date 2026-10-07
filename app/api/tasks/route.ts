@@ -5,6 +5,8 @@ import { emitEvent } from "@/lib/events/emit";
 import { runTaskSegment } from "@/lib/manager/taskRunner";
 import { ensureDemoUser, DEMO_USER_ID } from "@/lib/db/demoUser";
 import { checkTaskSanity } from "@/lib/manager/sanityCheck";
+import { inferDomain } from "@/lib/manager/domain";
+import { DATA_SENSITIVITIES, canViewAgent } from "@/lib/discovery/access";
 import { resolveSessionUser } from "@/lib/auth/session";
 import { resolveOrCreatePersonalOrg } from "@/lib/auth/rbac";
 
@@ -17,6 +19,8 @@ const createTaskSchema = z.object({
   budget: z.number().int().positive().max(1000),
   qualityThreshold: z.number().int().min(0).max(100).optional(),
   deadline: z.string().datetime().optional(),
+  dataSensitivity: z.enum(DATA_SENSITIVITIES).optional(),
+  approvedAgentIds: z.array(z.string().min(1)).max(50).optional(),
 });
 
 export async function GET(request: Request) {
@@ -54,7 +58,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const { prompt, budget, qualityThreshold, deadline } = parsed.data;
+  const { prompt, budget, qualityThreshold, deadline, dataSensitivity, approvedAgentIds } = parsed.data;
+
+  // An approval can only name agents this org may actually see - never
+  // another org's private agent - so the list can't be used to probe or
+  // reach them.
+  let approved: string[] = [];
+  if (approvedAgentIds && approvedAgentIds.length > 0) {
+    const rows = await db.agent.findMany({ where: { id: { in: approvedAgentIds } } });
+    const visible = new Set(rows.filter((a) => canViewAgent(a, organizationId)).map((a) => a.id));
+    if (approvedAgentIds.some((id) => !visible.has(id))) {
+      return NextResponse.json({ error: "One or more selected agents are not available to your organization." }, { status: 400 });
+    }
+    approved = [...new Set(approvedAgentIds)];
+  }
 
   // Semantic check, before any planning/discovery/escrow spend: syntactic
   // validation above only guarantees a string of plausible length, not that
@@ -81,6 +98,9 @@ export async function POST(request: Request) {
       budget,
       remainingBudget: budget,
       qualityThreshold: qualityThreshold ?? 70,
+      dataSensitivity: dataSensitivity ?? "PUBLIC",
+      approvedAgentIds: JSON.stringify(approved),
+      domain: inferDomain(prompt),
       deadline: deadline ? new Date(deadline) : null,
       status: "CREATED",
       userId: session.user.userId,

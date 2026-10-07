@@ -369,6 +369,7 @@ const DELEGATE_KEYS: Record<string, ModelName> = {
   agentLedger: "AgentLedger",
   agentPerformance: "AgentPerformance",
   agentCalibration: "AgentCalibration",
+  agentRating: "AgentRating",
   workflowMemory: "WorkflowMemory",
   event: "Event",
   securityEvent: "SecurityEvent",
@@ -428,5 +429,10 @@ function makeClient(getSession: () => ClientSession | undefined): DbClient {
 
 const globalForDb = globalThis as unknown as { __kravenDb?: DbClient };
 
-export const db: DbClient =
-  globalForDb.__kravenDb ?? (globalForDb.__kravenDb = makeClient(() => undefined));
+// The client is cached on globalThis so dev hot-reload doesn't open new
+// connections, but a cached client built before a delegate was added would
+// lack it (e.g. `db.agentRating` undefined) - rebuild when any is missing.
+const cached = globalForDb.__kravenDb;
+const cacheIsCurrent = cached && Object.keys(DELEGATE_KEYS).every((k) => k in (cached as object));
+
+export const db: DbClient = cacheIsCurrent ? cached! : (globalForDb.__kravenDb = makeClient(() => undefined));

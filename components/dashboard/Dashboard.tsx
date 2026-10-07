@@ -1,5 +1,6 @@
 "use client";
 
+import { authHeader } from "@/lib/auth/clientAuth";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useEventStream, type KravenEvent } from "@/lib/hooks/useEventStream";
@@ -115,7 +116,7 @@ export function Dashboard() {
 
   async function refreshAgents() {
     try {
-      const res = await fetch("/api/agents");
+      const res = await fetch("/api/agents", { headers: await authHeader() });
       const data = await res.json();
       setAgents(data.agents ?? []);
     } catch {
@@ -366,11 +367,14 @@ export function Dashboard() {
           <button
             type="button"
             onClick={() => setAlgorandModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-xs font-medium text-emerald-500 hover:bg-emerald-500/20 transition-colors shrink-0"
-            title="View Algorand Mainnet & x402 Status"
+            className="flex items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-emerald-500/30 hover:text-emerald-600 shrink-0"
+            title="View Algorand network & x402 status"
           >
-            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-semibold">Algorand Mainnet</span>
+            <span className="relative flex size-1.5">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-500/60" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+            </span>
+            {(process.env.NEXT_PUBLIC_ALGOD_NETWORK || "mainnet").toUpperCase()}
           </button>
           {mode === "user" && isRunning && (
             <span className="animate-in fade-in zoom-in-95 flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground duration-200">
@@ -405,8 +409,10 @@ export function Dashboard() {
                 <p className="animate-in fade-in mb-2 text-center text-sm font-medium text-muted-foreground duration-300">{greeting}</p>
               )}
               <h1 className="mb-8 text-center text-3xl font-semibold tracking-tight sm:text-[2rem]">
-                Give me something{" "}
-                <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">hard</span>.
+                What&apos;s the{" "}
+                <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">job</span>
+                , and what&apos;s the{" "}
+                <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">budget</span>?
               </h1>
               <div className="w-full">
                 <Composer

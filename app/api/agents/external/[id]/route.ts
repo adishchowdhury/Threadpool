@@ -38,10 +38,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const check = validateExternalEndpoint(data.endpoint);
     if (!check.valid) return NextResponse.json({ error: `Invalid endpoint: ${check.reason}` }, { status: 400 });
     update.endpoint = data.endpoint;
+    if (data.endpoint !== owned.agent!.endpoint) {
+      // A different endpoint is a different agent as far as benchmarks go:
+      // pull it from routing and the marketplace until Kraven re-measures it.
+      update.version = (owned.agent!.version ?? 1) + 1;
+      update.lifecycleStatus = "PENDING";
+      update.status = "INACTIVE";
+      update.visibility = "PRIVATE";
+    }
   }
   if (data.authToken !== undefined) update.externalAuthSecretEncrypted = encryptSecret(data.authToken);
 
   const agent = owned.agent!;
+  if (update.version !== undefined && data.action) {
+    return NextResponse.json({ error: "Changing the endpoint requires re-benchmarking; apply lifecycle actions separately." }, { status: 409 });
+  }
   if (data.action === "pause") {
     update.lifecycleStatus = "PAUSED";
     update.status = "INACTIVE";

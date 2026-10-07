@@ -9,9 +9,12 @@ import { cn } from "@/lib/utils";
 import { useAuthUser } from "@/lib/use-auth-user";
 import { firebaseConfigured } from "@/lib/firebase";
 import { LoginDialog } from "@/components/auth/login-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ApprovedAgentsPicker } from "@/components/dashboard/ApprovedAgentsPicker";
 import { authHeader } from "@/lib/auth/clientAuth";
 import { tokenRateLabel, tokensWorthLabel } from "@/lib/economy/tokenValue";
 
+const DATA_LABELS = { PUBLIC: "Public", INTERNAL: "Internal", SENSITIVE: "Sensitive" } as const;
 const BAR_COUNT = 32;
 
 // Sarvam's speech-to-text endpoint rejects the webm/opus container
@@ -74,6 +77,9 @@ export function Composer({
   autoFocus?: boolean;
 }) {
   const [prompt, setPrompt] = useState("");
+  const [dataSensitivity, setDataSensitivity] = useState<"PUBLIC" | "INTERNAL" | "SENSITIVE">("PUBLIC");
+  const [approvedAgentIds, setApprovedAgentIds] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -279,7 +285,7 @@ export function Composer({
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(await authHeader()) },
-        body: JSON.stringify({ prompt: text, budget, qualityThreshold }),
+        body: JSON.stringify({ prompt: text, budget, qualityThreshold, dataSensitivity, approvedAgentIds: dataSensitivity === "PUBLIC" ? [] : approvedAgentIds }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -423,11 +429,48 @@ export function Composer({
                   className="w-8 bg-transparent text-right font-mono text-sm text-foreground outline-none [appearance:textfield] disabled:opacity-60 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                 />
               </label>
+              <span className="mx-1.5 h-3.5 w-px bg-border" aria-hidden />
+              <div className="flex items-center gap-1.5">
+                <span>Data</span>
+                <Select value={dataSensitivity} onValueChange={(v) => v && setDataSensitivity(v as typeof dataSensitivity)} disabled={isRunning}>
+                  <SelectTrigger
+                    aria-label="Data sensitivity"
+                    className="h-auto w-auto gap-1 border-0 bg-transparent p-0 text-sm text-foreground shadow-none focus-visible:ring-0 dark:bg-transparent dark:hover:bg-transparent"
+                  >
+                    <SelectValue>{DATA_LABELS[dataSensitivity]}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PUBLIC">Public</SelectItem>
+                    <SelectItem value="INTERNAL">Internal</SelectItem>
+                    <SelectItem value="SENSITIVE">Sensitive</SelectItem>
+                  </SelectContent>
+                </Select>
+                {dataSensitivity !== "PUBLIC" && (
+                  <button
+                    type="button"
+                    disabled={isRunning}
+                    onClick={() => setPickerOpen(true)}
+                    className="rounded-full border border-border px-2 py-0.5 text-[11px] text-foreground transition-colors hover:bg-background disabled:opacity-60"
+                    title="Choose marketplace or certified agents that may also receive this task's data"
+                  >
+                    {approvedAgentIds.length > 0 ? `+ ${approvedAgentIds.length} allowed` : "+ Allow agents"}
+                  </button>
+                )}
+              </div>
+              {dataSensitivity !== "PUBLIC" && (
+                <ApprovedAgentsPicker
+                  open={pickerOpen}
+                  onOpenChange={setPickerOpen}
+                  level={dataSensitivity}
+                  selected={approvedAgentIds}
+                  onChange={setApprovedAgentIds}
+                />
+              )}
               <TooltipProvider delay={100}>
                 <Tooltip>
                   <TooltipTrigger
                     type="button"
-                    aria-label="What are Budget and Quality bar?"
+                    aria-label="What are Budget, Quality bar and Data?"
                     className="ml-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none"
                   >
                     <Info className="size-3.5" />
@@ -440,6 +483,10 @@ export function Composer({
                     <p>
                       <strong>Quality bar</strong> - the minimum score (0–100) the work must reach. Work scoring lower isn&apos;t paid and is
                       retried or reassigned. Higher is stricter and can cost more; 70 is a good starting point.
+                    </p>
+                    <p>
+                      <strong>Data</strong> - how sensitive your task data is. <em>Public</em>: any agent you can see. <em>Internal</em>: Kraven
+                      Certified and your own agents only. <em>Sensitive</em>: only your organization&apos;s private agents. Use <em>Allow agents</em> to also let specific agents you trust receive the data.
                     </p>
                   </TooltipContent>
                 </Tooltip>

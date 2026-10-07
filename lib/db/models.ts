@@ -15,7 +15,16 @@ import { Schema, type Model } from "mongoose";
 const idField = { type: String, default: () => createId() };
 
 function model(name: string, schema: Schema<any>): Model<any> {
-  return (mongoose.models[name] as Model<any>) ?? mongoose.model<any>(name, schema);
+  const existing = mongoose.models[name] as unknown as Model<any> | undefined;
+  if (existing) {
+    // Dev hot-reload keeps the first-compiled model alive, and Mongoose's
+    // strict mode silently drops any field added since (e.g. a task's
+    // dataSensitivity would never be saved). Recompile when the schema grew.
+    const same = Object.keys(schema.paths).every((p) => p in existing.schema.paths);
+    if (same) return existing;
+    mongoose.deleteModel(name);
+  }
+  return mongoose.model<any>(name, schema) as Model<any>;
 }
 
 const WALLET_TYPES = ["MANAGER", "AGENT", "USER"] as const;
@@ -129,6 +138,15 @@ const agentSchema = new Schema<any>(
     demotedAt: { type: Date, default: null },
     lastHealthCheckAt: { type: Date, default: null },
     lastHealthStatus: { type: String, default: null },
+    // Tenancy class (lib/discovery/access.ts): CERTIFIED | PRIVATE | MARKETPLACE.
+    // null = legacy row: built-ins resolve to CERTIFIED, external to PRIVATE.
+    // Bumped whenever the endpoint changes: earlier benchmarks no longer describe
+    // what is being called, so the agent must be re-benchmarked.
+    version: { type: Number, default: 1 },
+    // What the owner WANTS: MARKETPLACE only takes effect (visibility flips)
+    // once Kraven's benchmark has activated the agent. Survives re-benchmarking.
+    visibilityPreference: { type: String, enum: ["PRIVATE", "MARKETPLACE"], default: "PRIVATE" },
+    visibility: { type: String, enum: ["CERTIFIED", "PRIVATE", "MARKETPLACE"], default: null },
   },
   { timestamps: true, versionKey: false },
 );
@@ -228,6 +246,14 @@ const taskSchema = new Schema<any>(
     // fallback (Firebase unconfigured) keep working unscoped.
     organizationId: { type: String, default: null },
     pinned: { type: Boolean, default: false },
+    // Which agents may receive this task's data (lib/discovery/access.ts).
+    dataSensitivity: { type: String, enum: ["PUBLIC", "INTERNAL", "SENSITIVE"], default: "PUBLIC" },
+    // JSON TaskContract (lib/manager/contract.ts): fixed after planning,
+    // evaluated deterministically at completion.
+    contract: { type: String, default: null },
+    // JSON string[]: agents the user explicitly allowed to receive this task's data.
+    approvedAgentIds: { type: String, default: "[]" },
+    domain: { type: String, default: "general" },
     // Durable execution (lib/manager/taskRunner.ts): a task runs as a chain
     // of bounded segments, one serverless invocation each. `leaseUntil` makes
     // sure only one segment runs at a time; `segment` counts them.
@@ -378,6 +404,7 @@ const agentPerformanceSchema = new Schema<any>(
     actualLatencyMs: { type: Number, required: true },
     qaScore: { type: Number, required: true },
     success: { type: Boolean, required: true },
+    domain: { type: String, default: "general" },
   },
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
 );
@@ -401,6 +428,22 @@ const agentCalibrationSchema = new Schema<any>(
   { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
 );
 agentCalibrationSchema.index({ agentId: 1, capability: 1 });
+
+// User ratings are their own source of truth: they never feed benchmark
+// numbers. One rating per (agent, task); only orgs that actually used the
+// agent on that task can rate it (enforced in the route).
+const agentRatingSchema = new Schema<any>(
+  {
+    _id: idField,
+    agentId: { type: String, required: true },
+    taskId: { type: String, required: true },
+    organizationId: { type: String, required: true },
+    rating: { type: Number, required: true },
+    comment: { type: String, default: null },
+  },
+  { timestamps: { createdAt: true, updatedAt: false }, versionKey: false },
+);
+agentRatingSchema.index({ agentId: 1, taskId: 1 }, { unique: true });
 
 const workflowMemorySchema = new Schema<any>(
   {
@@ -545,6 +588,7 @@ export const models = {
   AgentLedger: model("AgentLedger", agentLedgerSchema),
   AgentPerformance: model("AgentPerformance", agentPerformanceSchema),
   AgentCalibration: model("AgentCalibration", agentCalibrationSchema),
+  AgentRating: model("AgentRating", agentRatingSchema),
   WorkflowMemory: model("WorkflowMemory", workflowMemorySchema),
   Event: model("Event", eventSchema),
   SecurityEvent: model("SecurityEvent", securityEventSchema),

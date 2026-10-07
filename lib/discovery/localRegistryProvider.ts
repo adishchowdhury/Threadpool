@@ -1,3 +1,4 @@
+import { effectiveVisibility } from "@/lib/discovery/access";
 import { db } from "@/lib/db/client";
 import type { AgentDiscoveryProvider, DiscoverableAgent } from "@/lib/discovery/types";
 
@@ -50,6 +51,7 @@ export class LocalRegistryProvider implements AgentDiscoveryProvider {
         sampleCount: cap?.sampleCount ?? a.sampleCount ?? 0,
         isExternal: a.isExternal ?? false,
         providerId: a.providerId ?? null,
+        visibility: effectiveVisibility(a),
         providerName: a.providerId ? providerNameById.get(a.providerId) ?? null : null,
       };
     });

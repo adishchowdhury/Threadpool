@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Copy, ExternalLink, ShieldCheck, Zap } from "lucide-react";
+import { Check, Copy, ExternalLink, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 interface AlgorandModalProps {
@@ -39,79 +39,76 @@ export function AlgorandModal({ open, onOpenChange }: AlgorandModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500">
-              <Zap className="size-4" />
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader className="pr-8">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/20">
+              <ShieldCheck className="size-4" />
             </div>
-            <div>
-              <DialogTitle className="text-base font-semibold">Algorand Mainnet & x402 Status</DialogTitle>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <DialogTitle className="text-sm font-semibold">Algorand & x402 Status</DialogTitle>
+                <Badge variant="outline" className="gap-1.5 shrink-0 border-emerald-500/20 bg-emerald-500/10 text-[10px] font-semibold text-emerald-600">
+                  <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {network.toUpperCase()}
+                </Badge>
+              </div>
               <DialogDescription className="text-xs">
-                Immutable agent proof settlement & HTTP 402 payment protocol
+                On-chain settlement for agent payments
               </DialogDescription>
             </div>
           </div>
         </DialogHeader>
 
-        <div className="space-y-4 pt-2 text-xs">
-          {/* Network Status Card */}
-          <div className="rounded-xl border border-border/60 bg-muted/30 p-3.5 space-y-2.5">
+        <div className="space-y-5 pt-1">
+          {/* Network details */}
+          <dl className="divide-y divide-border/50 rounded-lg border border-border/50">
+            <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 text-xs">
+              <dt className="text-muted-foreground">Algod server node</dt>
+              <dd className="font-mono text-[11px] text-foreground">mainnet-api.algonode.cloud</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4 px-3.5 py-2.5 text-xs">
+              <dt className="text-muted-foreground">Protocol</dt>
+              <dd className="font-mono text-[11px] text-foreground">x402 Exact AVM (USDC/ALGO)</dd>
+            </div>
+          </dl>
+
+          {/* Receiving wallet */}
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="font-medium text-muted-foreground">Network Status</span>
-              <Badge variant="outline" className="gap-1.5 bg-emerald-500/10 text-emerald-500 border-emerald-500/20 text-[11px] font-semibold">
-                <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {network.toUpperCase()} CONNECTED
-              </Badge>
-            </div>
-
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Algod Server Node</span>
-              <span className="font-mono text-foreground">mainnet-api.algonode.cloud</span>
-            </div>
-
-            <div className="flex items-center justify-between text-muted-foreground">
-              <span>Protocol Scheme</span>
-              <span className="font-mono text-foreground">x402 Exact AVM (USDC/ALGO)</span>
-            </div>
-          </div>
-
-          {/* Receiving Wallet Address Card */}
-          <div className="rounded-xl border border-border/60 bg-muted/30 p-3.5 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-muted-foreground">Server Receiving Wallet Address</span>
-              <Button variant="ghost" size="sm" onClick={copyAddress} className="h-7 px-2 text-xs gap-1">
+              <span className="text-xs font-medium text-foreground">Receiving wallet</span>
+              <Button variant="ghost" size="sm" onClick={copyAddress} className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground">
                 {copied ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
                 {copied ? "Copied" : "Copy"}
               </Button>
             </div>
-            <div className="font-mono text-[11px] break-all rounded-md bg-background/80 p-2 border border-border/40 text-foreground">
+            <div className="rounded-md border border-border/50 bg-muted/40 p-2.5 font-mono text-[11px] break-all text-foreground">
               {address}
             </div>
             <a
               href={explorerUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-primary hover:underline pt-0.5"
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
             >
-              View account on Algorand Explorer (Lora) <ExternalLink className="size-3" />
+              View on Algorand Explorer <ExternalLink className="size-3" />
             </a>
           </div>
 
-          {/* x402 Endpoint for Hackathon Judges / Bots */}
-          <div className="rounded-xl border border-border/60 bg-muted/30 p-3.5 space-y-2">
+          {/* x402 endpoint */}
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="font-medium text-muted-foreground">x402 Protected API Endpoint</span>
-              <Button variant="ghost" size="sm" onClick={copyCurl} className="h-7 px-2 text-xs gap-1">
+              <span className="text-xs font-medium text-foreground">x402 protected endpoint</span>
+              <Button variant="ghost" size="sm" onClick={copyCurl} className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground hover:text-foreground">
                 {copiedCurl ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
                 {copiedCurl ? "Copied" : "Copy cURL"}
               </Button>
             </div>
-            <div className="font-mono text-[11px] rounded-md bg-background/80 p-2 border border-border/40 text-foreground overflow-x-auto">
+            <div className="overflow-x-auto rounded-md border border-border/50 bg-muted/40 p-2.5 font-mono text-[11px] text-foreground">
               {x402Endpoint}
             </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Responds with <code className="text-foreground">HTTP 402 Payment Required</code> when unpaid, and verifies/settles signed Algorand transactions on-chain.
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Returns <span className="text-foreground">402 Payment Required</span> when unpaid; settles signed Algorand transactions on-chain.
             </p>
           </div>
         </div>

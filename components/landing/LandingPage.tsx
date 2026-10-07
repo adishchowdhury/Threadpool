@@ -320,9 +320,16 @@ export function LandingPage() {
 
           {/* Sub */}
           {mounted && (
-            <p className="anim-fade-up delay-300 text-white/35 text-base md:text-lg max-w-xl leading-relaxed mb-12 font-mono">
+            <p className="anim-fade-up delay-300 text-white/35 text-base md:text-lg max-w-xl leading-relaxed mb-4 font-mono">
               Streamline your workflow and boost productivity with intuitive solutions.
               <br />Security, speed, and simplicity - all in one platform.
+            </p>
+          )}
+
+          {/* v1 scope note */}
+          {mounted && (
+            <p className="anim-fade-up delay-300 text-white/20 text-[11px] uppercase tracking-widest mb-12 font-mono">
+              v1 - text in, text out
             </p>
           )}
 
