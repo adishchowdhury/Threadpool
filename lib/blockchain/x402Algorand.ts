@@ -41,14 +41,15 @@ function getFacilitatorClient(): HTTPFacilitatorClient {
   return cachedFacilitator;
 }
 
+import { bazaarResourceServerExtension } from "@x402/extensions";
+
 let cachedResourceServer: x402ResourceServer | null = null;
 /** Server-side x402 resource server: verifies/settles via the real facilitator. */
 export function getX402ResourceServer(): x402ResourceServer {
   if (!cachedResourceServer) {
-    cachedResourceServer = new x402ResourceServer(getFacilitatorClient()).register(
-      X402_ALGORAND_NETWORK,
-      new ExactAvmSchemeServer(),
-    );
+    cachedResourceServer = new x402ResourceServer(getFacilitatorClient())
+      .register(X402_ALGORAND_NETWORK, new ExactAvmSchemeServer())
+      .registerExtension(bazaarResourceServerExtension);
   }
   return cachedResourceServer;
 }
