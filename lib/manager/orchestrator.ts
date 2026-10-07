@@ -3,7 +3,7 @@ import { emitEvent } from "@/lib/events/emit";
 import { commitWorkflowEvent, verifyWorkflowEvent, computeSha256 } from "@/lib/blockchain/algorandTrust";
 import { decomposeTask, fitPlanToBudget, workflowSignature } from "@/lib/manager/planner";
 import { priceFloorByCapability, reserveForLaterSteps, loadUpstream, taskSources, parseArtifacts } from "@/lib/manager/workflowContext";
-import { runReworkCycle } from "@/lib/manager/rework";
+import { runReworkCycle, type ReworkOutcome } from "@/lib/manager/rework";
 import { hashText } from "@/lib/capabilities/review";
 import { renderSourcesSection, sourcesForText, stripInvalidCitations, stripModelSourceList } from "@/lib/capabilities/sources";
 import { discoverAgents } from "@/lib/discovery";
@@ -106,7 +106,7 @@ export async function runTask(taskId: string) {
   // Create subtask rows, mapping the plan's sequence numbers to real ids
   // so dependsOn can be stored as actual subtask ids.
   const seqToId = new Map<number, string>();
-  const createdSubtasks = [];
+  const createdSubtasks: any[] = [];
   for (const sp of [...plan.subtasks].sort((a, b) => a.sequence - b.sequence)) {
     const row = await db.subtask.create({
       data: {
@@ -133,7 +133,11 @@ export async function runTask(taskId: string) {
 
   const agentsUsed: string[] = [];
   let totalCost = 0;
-  let reviewOutcome: Awaited<ReturnType<typeof runReworkCycle>> | null = null;
+  // A plain `object` property, not a bare `let`, so reading it after the
+  // concurrent processSubtask calls below isn't at the mercy of TS's closure
+  // narrowing (a `let` only ever reassigned inside a nested function gets
+  // narrowed inconsistently once that function runs in parallel branches).
+  const reviewOutcomeBox: { value: ReworkOutcome | null } = { value: null };
   const workStart = Date.now();
   // Subtasks that could not be completed (no agent, or QA rejected every
   // attempt and every reassignment). These don't abort the task by
@@ -142,7 +146,23 @@ export async function runTask(taskId: string) {
   // disclosed, rather than discarding every subtask that DID succeed.
   const degraded: Array<{ type: string; requiredCapability: string; reason: string }> = [];
 
-  for (const subtask of createdSubtasks) {
+  // Runs one subtask end-to-end: discovery -> filtering -> ranking -> escrow
+  // -> execution -> QA -> retry/reassignment -> payout. Pulled out of the old
+  // `for` loop so independent subtasks (no dependency edge between them -
+  // e.g. market research, competitive analysis and financial analysis all
+  // feeding into one report) can run concurrently instead of strictly one at
+  // a time (see runLevels below). A subtask only ever starts once every
+  // subtask it `dependsOn` has already finished, so `loadUpstream` below
+  // still sees complete upstream output - that invariant doesn't depend on
+  // the rest of the task running sequentially, only on dependencies being
+  // resolved first.
+  //
+  // A `return` in here (same as when this was loop body) only ends THIS
+  // subtask's processing, not the whole task - fatal paths below call
+  // failTask() (which flips the task to FAILED) before returning, and
+  // runLevels checks the task's status between levels to stop scheduling
+  // further work once that happens.
+  async function processSubtask(subtask: (typeof createdSubtasks)[number]): Promise<void> {
     if (await isCancelled(taskId)) return;
 
     const currentTask = await db.task.findUniqueOrThrow({ where: { id: taskId } });
@@ -173,7 +193,7 @@ export async function runTask(taskId: string) {
       await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
       await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
       degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
-      continue;
+      return;
     }
 
     const bids = await collectBids({ taskId, subtaskId: subtask.id, candidates: filtered });
@@ -633,8 +653,48 @@ export async function runTask(taskId: string) {
         isCancelled: () => isCancelled(taskId),
       });
       if (outcome.cancelled) return;
-      reviewOutcome = outcome;
+      reviewOutcomeBox.value = outcome;
     }
+  }
+
+  // Group subtasks into dependency levels (topological batches): everything
+  // in a level has every dependency satisfied by an earlier level, so it can
+  // run concurrently with the rest of its own level. `sequence` is a strict
+  // total order assigned at plan time, but `dependsOn` is the real DAG - most
+  // plans have 2-3 independent research/analysis steps feeding one report
+  // step, which previously ran one at a time for no reason other than the
+  // loop being written that way. That's what was turning a task that should
+  // take ~1-2x one subtask's worth of wall-clock time into 3-4x it, which is
+  // what was driving runs past the serverless time limit (see the
+  // reconciliation check in app/api/tasks/[id]/route.ts for what happens when
+  // that still occurs).
+  function buildLevels(subtasks: typeof createdSubtasks): (typeof createdSubtasks)[] {
+    const levelOf = new Map<string, number>();
+    for (const s of subtasks) {
+      const deps = JSON.parse(s.dependsOn) as string[];
+      // Safe to look up now: dependsOnSequence only ever points at earlier
+      // sequence numbers (planner.ts), and `subtasks` is sorted by sequence.
+      const level = deps.length === 0 ? 0 : Math.max(...deps.map((d) => levelOf.get(d) ?? 0)) + 1;
+      levelOf.set(s.id, level);
+    }
+    const levels: (typeof createdSubtasks)[] = [];
+    for (const s of subtasks) {
+      const level = levelOf.get(s.id)!;
+      (levels[level] ??= []).push(s);
+    }
+    return levels;
+  }
+
+  for (const level of buildLevels(createdSubtasks)) {
+    if (await isCancelled(taskId)) return;
+    await Promise.all(level.map((subtask) => processSubtask(subtask)));
+    if (await isCancelled(taskId)) return;
+    // A fatal error inside processSubtask (escrow lock blocked, payout
+    // blocked, integrity check failed, ...) calls failTask and returns from
+    // just that subtask - this is the equivalent of the old code's `return`
+    // out of the whole function, now checked between levels instead.
+    const afterLevel = await db.task.findUniqueOrThrow({ where: { id: taskId } });
+    if (afterLevel.status === "FAILED") return;
   }
 
   if (await isCancelled(taskId)) return;
@@ -704,7 +764,7 @@ export async function runTask(taskId: string) {
   const confidence = computeOverallConfidence({
     sources: allSources,
     numeric: numericChecks,
-    reviewScore: reviewOutcome?.score ?? null,
+    reviewScore: reviewOutcomeBox.value?.score ?? null,
   });
   await emitEvent(db, { taskId, actor: "system", eventType: "CONFIDENCE_COMPUTED", payload: confidence });
 
@@ -718,12 +778,12 @@ export async function runTask(taskId: string) {
     subtask_types: finalSubtasks.map((st) => st.type),
     incomplete_subtasks: degraded.length > 0 ? degraded : undefined,
     sources: allSources.map((src) => ({ id: src.id, title: src.title, url: src.url, kind: src.kind, cited: used.citedOnly && used.sources.includes(src) })),
-    review: reviewOutcome
+    review: reviewOutcomeBox.value
       ? {
-          approved: reviewOutcome.approved,
-          score: reviewOutcome.score,
-          reworkRounds: reviewOutcome.rounds,
-          unresolvedIssues: reviewOutcome.unresolved,
+          approved: reviewOutcomeBox.value.approved,
+          score: reviewOutcomeBox.value.score,
+          reworkRounds: reviewOutcomeBox.value.rounds,
+          unresolvedIssues: reviewOutcomeBox.value.unresolved,
         }
       : null,
     qa_summary: finalSubtasks
