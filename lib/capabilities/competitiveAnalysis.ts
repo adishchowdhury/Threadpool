@@ -3,7 +3,7 @@ import { isSarvamConfigured } from "@/lib/manager/sarvam";
 import { generateStructuredWithUsage } from "@/lib/manager/structuredGenerate";
 import { SourceRegistry, renderSourcesSection, sourcesForText, type Source } from "@/lib/capabilities/sources";
 import { addUsage, agentTier, feedbackBlock, generateWorkerText, upstreamBlock, LANGUAGE_RULE, type Usage } from "@/lib/capabilities/llm";
-import { citableSources, formatSourcesForPrompt, heuristicQueries, webPass } from "@/lib/capabilities/common";
+import { citableSources, formatSourcesForPrompt, heuristicQueries, liveWebUnavailableText, webPass, webSearchArtifact } from "@/lib/capabilities/common";
 import { valueAppearsIn, type Dataset } from "@/lib/tools/dataEngine";
 import type { ToolCallRecord } from "@/lib/tools/types";
 import type { CapabilityRunInput, CapabilityRunOutput, CompetitorProfile, DataPoint, Swot } from "@/lib/capabilities/types";
@@ -142,9 +142,13 @@ export async function runCompetitiveAnalysis(input: CapabilityRunInput): Promise
   if (sources.length === 0 && input.webGrounding) {
     const queries = heuristicQueries(`${input.taskPrompt} competitors comparison`, input.description);
     const web = await webPass(input, registry, queries, calls, 5);
-    webSearch = { available: web.available, queries: web.queries, ...(web.reason ? { reason: web.reason } : {}) };
+    webSearch = webSearchArtifact(web);
     ownSources = web.sources;
     sources = web.sources;
+    if (!web.available) {
+      // Live research failed: report it; never fall back to model knowledge.
+      return { output: liveWebUnavailableText("Competitive landscape", web), source: "tool_unavailable", artifacts: { sources: [], webSearch, toolCalls: calls, mode: "fallback" } };
+    }
   }
 
   if (!isSarvamConfigured()) {

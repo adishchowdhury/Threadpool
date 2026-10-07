@@ -68,9 +68,11 @@ The product is the workforce the Manager assembles, not the agent list. What the
 - **Specialised runtimes** (`lib/capabilities/`): web research (sourced findings vs. model analysis, code-rendered source list), competitive analysis (structured profiles, SWOT, comparable metrics; "sourced" figures are checked against the cited page), data analysis (model chooses operations, engine computes, narrative figures are checked against the data), integration review (issues attributed to the step that must fix them).
 - **QA and rework**: per-step QA runs capability-specific deterministic checks before the QA model (fabricated citations, untraceable figures, missing comparables fail regardless of prose quality) and sends specific feedback on retry. After the final review, blocking issues go back to the responsible step, everything downstream is re-run, and the review repeats (max 2 rounds); unresolved issues are disclosed on the report.
 
-### Web search backends
+### Web search (self-hosted SearXNG)
 
-Set one of `BRAVE_SEARCH_API_KEY` (Brave Search API) or `TAVILY_API_KEY` (Tavily) for production. Without a key, search falls back to scraping DuckDuckGo's HTML page, which rate-limits automated traffic with a bot challenge after a burst of queries; when that happens the research step reports "no live sources" and downstream work is labeled unsourced (never fabricated).
+Live research searches through a SearXNG instance you run (`docker-compose.searxng.yml`, config in `infra/searxng/settings.yml`: JSON output enabled, Google/Bing/DuckDuckGo/Brave/Startpage/Mojeek/Wikipedia). Copy `infra/searxng/searxng.env.example` to `infra/searxng/searxng.env` and set a secret, set `SEARXNG_URL=http://localhost:8888` in `.env`, then `docker compose --env-file infra/searxng/searxng.env -f docker-compose.searxng.yml up -d`.
+
+Requests time out after 8s and retry up to 3 times with backoff on timeouts, network errors, 429 and 5xx. Every result carries `status: "ok" | "partial" | "unavailable"` plus which engines and pages succeeded or failed. When live research fails, the step reports the outage and stops: Kraven never answers a web-grounded step from the model's training knowledge, and downstream work is labeled unsourced.
 
 ## Demo flow
 

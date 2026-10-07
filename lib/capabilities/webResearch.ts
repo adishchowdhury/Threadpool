@@ -10,7 +10,7 @@ import {
   type Source,
 } from "@/lib/capabilities/sources";
 import { addUsage, agentTier, feedbackBlock, generateWorkerText, LANGUAGE_RULE, type Usage } from "@/lib/capabilities/llm";
-import { formatSourcesForPrompt, heuristicQueries, sanitizeQuery, webPass } from "@/lib/capabilities/common";
+import { formatSourcesForPrompt, heuristicQueries, sanitizeQuery, webPass, webSearchArtifact } from "@/lib/capabilities/common";
 import type { ToolCallRecord } from "@/lib/tools/types";
 import type { CapabilityRunInput, CapabilityRunOutput } from "@/lib/capabilities/types";
 
@@ -77,22 +77,24 @@ export async function runWebResearch(input: CapabilityRunInput): Promise<Capabil
   usage = addUsage(usage, planned.usage);
   let web = await webPass(input, registry, planned.queries, calls, 6);
   // Nothing usable: broaden once with simpler queries built from the task
-  // itself (unless the search backend is blocking us outright).
-  if (!web.available && !/bot challenge|blocked/i.test(web.reason ?? "")) {
+  // itself (unless the search backend itself is down - a retry cannot help).
+  if (!web.available && !web.live.backendError) {
     const broader = heuristicQueries(input.taskPrompt, input.description).map(sanitizeQuery).filter((q) => !planned.queries.includes(q));
     if (broader.length > 0) {
       const second = await webPass(input, registry, broader, calls, 6);
       web = second.available ? second : { ...second, queries: [...planned.queries, ...broader], reason: second.reason ?? web.reason };
     }
   }
-  const webSearch = { available: web.available, queries: web.queries, ...(web.reason ? { reason: web.reason } : {}) };
+  const webSearch = webSearchArtifact(web);
 
   if (!web.available || web.sources.length === 0) {
     // Nothing retrieved: say so plainly. No sourced section, no citations.
     const output = [
       "## Web research",
       "",
-      `> **No live sources could be retrieved** (${web.reason ?? "unknown reason"}). Nothing in this deliverable is sourced; downstream steps must treat any figures as unverified.`,
+      `> **No live sources could be retrieved** (${web.reason ?? "unknown reason"}). Nothing in this deliverable is sourced and none of it comes from model training knowledge; downstream steps must treat any figures as unverified.`,
+      ...(web.live.engines.failed.length ? [`Search engines that failed: ${web.live.engines.failed.map((f) => `${f.name} (${f.reason})`).join(", ")}`] : []),
+      ...(web.live.backendError ? [`Search backend: ${web.live.backendError}`] : []),
       "",
       `Searches attempted: ${web.queries.map((q) => `"${q}"`).join(", ")}`,
     ].join("\n");

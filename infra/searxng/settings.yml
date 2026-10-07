@@ -1,0 +1,46 @@
+# SearXNG configuration for Kraven. Starts from the upstream defaults and
+# overrides only what the app needs. The secret key comes from the
+# SEARXNG_SECRET environment variable (see docker-compose.searxng.yml).
+use_default_settings: true
+
+general:
+  instance_name: "kraven-searxng"
+  debug: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  # json is what Kraven calls; html keeps the web UI usable for debugging.
+  formats:
+    - html
+    - json
+
+server:
+  # The instance is private (loopback-bound), so the bot limiter, which needs
+  # Valkey/Redis, is unnecessary.
+  limiter: false
+  image_proxy: false
+
+outgoing:
+  # Upstream engines slower than this are reported in `unresponsive_engines`
+  # instead of stalling the whole query; Kraven surfaces that as "partial".
+  request_timeout: 4.0
+  max_request_timeout: 8.0
+
+# Several independent engines so one blocking us degrades results rather than
+# ending research.
+engines:
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: wikipedia
+    disabled: false

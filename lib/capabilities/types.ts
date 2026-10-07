@@ -2,6 +2,8 @@ import type { Source, CitationCheck } from "@/lib/capabilities/sources";
 import type { AnalysisResult, Dataset } from "@/lib/tools/dataEngine";
 import type { ToolCallRecord } from "@/lib/tools/types";
 import type { NumericCheckReport } from "@/lib/manager/numericCheck";
+import type { SearchStatus } from "@/lib/manager/webScraper";
+import type { LiveSourceReport } from "@/lib/tools/webSearch";
 
 // Structured artifacts a subtask leaves behind next to its prose output.
 // Persisted on the Subtask row (JSON) so downstream workers, QA, the
@@ -89,7 +91,7 @@ export interface IntegrationReview {
 export interface SubtaskArtifacts {
   // Sources this subtask itself retrieved (registered with task-wide ids).
   sources?: Source[];
-  webSearch?: { available: boolean; queries: string[]; reason?: string };
+  webSearch?: { available: boolean; status?: SearchStatus; queries: string[]; reason?: string; live?: LiveSourceReport };
   citationCheck?: CitationCheck;
   competitors?: CompetitorProfile[];
   swot?: Swot;

@@ -10,7 +10,7 @@ import {
 import { db } from "@/lib/db/client";
 import { CAPABILITY_CATALOG, isCapabilityId, REPORT_CAPABILITIES } from "@/lib/capabilities/catalog";
 import { SourceRegistry, checkCitations, renderSourcesSection, sourcesForText, stripModelSourceList, type Source } from "@/lib/capabilities/sources";
-import { citableSources, formatSourcesForPrompt, heuristicQueries, webPass } from "@/lib/capabilities/common";
+import { citableSources, formatSourcesForPrompt, heuristicQueries, liveWebUnavailableText, webPass, webSearchArtifact } from "@/lib/capabilities/common";
 import { generateWithReasoningGuard, upstreamBlock as renderUpstream, LANGUAGE_RULE } from "@/lib/capabilities/llm";
 import { runWebResearch } from "@/lib/capabilities/webResearch";
 import { runCompetitiveAnalysis } from "@/lib/capabilities/competitiveAnalysis";
@@ -381,11 +381,18 @@ ${paidText}
     const webGrounded = isCapabilityId(params.type) && CAPABILITY_CATALOG[params.type].webGrounded;
     if (sources.length === 0 && params.webGrounding !== false && webGrounded) {
       const web = await webPass(runInput, new SourceRegistry(runInput.knownSources), heuristicQueries(params.taskPrompt, params.description), calls, 4);
-      webSearch = { available: web.available, queries: web.queries, ...(web.reason ? { reason: web.reason } : {}) };
+      webSearch = webSearchArtifact(web);
       ownSources = web.sources;
       sources = web.sources;
       if (!web.available) {
-        webBlock = `\n\n[LIVE WEB DATA UNAVAILABLE - ${web.reason ?? "no results"}. Rely on your training data and say so if precision on recent figures matters.]`;
+        // Live research failed: report it and stop - never answer a web-grounded
+        // step from the model's training knowledge.
+        return {
+          output: liveWebUnavailableText(params.description.slice(0, 80), web),
+          actualLatencyMs: Date.now() - start,
+          source: "tool_unavailable",
+          artifacts: { sources: [], webSearch, toolCalls: calls, mode: "fallback" },
+        };
       }
     }
     if (sources.length > 0) {

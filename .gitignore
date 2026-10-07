@@ -54,3 +54,6 @@ models/*.safetensors
 !models/model-manifest.json
 !models/README.md
 
+
+# SearXNG local secret
+infra/searxng/searxng.env

@@ -35,6 +35,7 @@ type WebDataFetchedPayload = {
   subtaskId: string | null;
   capability: string;
   available: boolean;
+  status?: "ok" | "partial" | "unavailable";
   sources: { url: string; title: string }[];
   reason: string | null;
 };
@@ -724,8 +725,12 @@ export function WorkflowPanel({
                     <div className="space-y-1.5 text-xs">
                       <div className="text-panel-muted">
                         Grounded {hoveredNode.subtask?.requiredCapability ?? "output"} in {hoveredNode.webData.sources.length} live source
-                        {hoveredNode.webData.sources.length === 1 ? "" : "s"}:
+                        {hoveredNode.webData.sources.length === 1 ? "" : "s"}
+                        {hoveredNode.webData.status === "partial" ? " (PARTIAL)" : ""}:
                       </div>
+                      {hoveredNode.webData.status === "partial" && hoveredNode.webData.reason ? (
+                        <div className="text-amber-300">{hoveredNode.webData.reason}</div>
+                      ) : null}
                       <ul className="space-y-1">
                         {hoveredNode.webData.sources.map((s, i) => (
                           <li key={i} className="truncate">
@@ -737,7 +742,7 @@ export function WorkflowPanel({
                     </div>
                   ) : (
                     <div className="text-xs text-panel-muted">
-                      No live data fetched - {hoveredNode.webData.reason ?? "unknown reason"}. Worker fell back to its own training data.
+                      No live data fetched - {hoveredNode.webData.reason ?? "unknown reason"}. This step reported the outage; it did not fall back to model knowledge.
                     </div>
                   )
                 ) : (

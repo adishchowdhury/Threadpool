@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { searchWeb, scrapePage, isBrightDataConfigured, type WebSearchResult } from "@/lib/manager/webScraper";
+import { searchWebDetailed, scrapePage, isBrightDataConfigured, type EngineFailure, type SearchStatus, type WebSearchResult } from "@/lib/manager/webScraper";
 import type { Source } from "@/lib/capabilities/sources";
 import type { AgentTool } from "@/lib/tools/types";
 import { withTimeout } from "@/lib/runtime/deadline";
@@ -34,9 +34,29 @@ export function isRelevant(result: { title: string; snippet: string }, query: st
   return q.some((t) => hay.has(t) || hay.has(`${t}s`) || (t.endsWith("s") && hay.has(t.slice(0, -1))));
 }
 
+// Which live sources worked and which did not, so callers and the UI can say
+// exactly what a result rests on. `backendError` is set when the SearXNG
+// instance itself could not be used.
+export interface LiveSourceReport {
+  engines: { succeeded: string[]; failed: EngineFailure[] };
+  pages: { succeeded: string[]; failed: Array<{ url: string; reason: string }> };
+  backendError?: string;
+}
+
+export const emptyLiveReport = (backendError?: string): LiveSourceReport => ({
+  engines: { succeeded: [], failed: [] },
+  pages: { succeeded: [], failed: [] },
+  ...(backendError ? { backendError } : {}),
+});
+
 export interface WebSearchOutput {
+  // "ok": everything worked; "partial": usable sources, but some engines or
+  // pages failed; "unavailable": no live sources. `available` is
+  // status !== "unavailable". Nothing here is ever filled from model knowledge.
+  status: SearchStatus;
   available: boolean;
   queries: string[];
+  live: LiveSourceReport;
   // Sources retrieved by this call (already registered, with ids).
   sources: Source[];
   reason?: string;
@@ -52,20 +72,23 @@ export const webSearchTool: AgentTool<{ queries: string[]; maxSources: number },
   async run({ queries, maxSources }, ctx) {
     const start = Date.now();
     const fetchedAt = new Date().toISOString();
-    const errors: string[] = [];
-    // Concurrent, lightly staggered: run one after another, 2-4 queries that
-    // each may walk several providers cost up to a minute on their own.
-    const perQuery: WebSearchResult[][] = await Promise.all(
+    // Concurrent, lightly staggered: each query may retry with backoff, so
+    // running them one after another would eat the step's time budget.
+    const reports = await Promise.all(
       queries.map(async (q, i) => {
         if (i > 0) await new Promise((r) => setTimeout(r, i * 300));
-        try {
-          return await searchWeb(q, 5);
-        } catch (err) {
-          errors.push(err instanceof Error ? err.message : "search failed");
-          return [];
-        }
+        return searchWebDetailed(q, 5);
       }),
     );
+    const perQuery: WebSearchResult[][] = reports.map((r) => r.results);
+    const errors = reports.filter((r) => r.status === "unavailable").map((r) => r.reason ?? "search failed");
+    const live = emptyLiveReport();
+    live.engines.succeeded = [...new Set(reports.flatMap((r) => r.engines.succeeded))];
+    const failedEngines = new Map<string, EngineFailure>();
+    for (const f of reports.flatMap((r) => r.engines.failed)) failedEngines.set(`${f.name}:${f.reason}`, f);
+    live.engines.failed = [...failedEngines.values()];
+    // The backend is only "down" if no query could use it at all.
+    if (reports.every((r) => r.backendError)) live.backendError = reports[0].backendError;
 
     // Round-robin across queries so one query cannot crowd out the others.
     // Results whose title+snippet share no significant term with their query
@@ -88,21 +111,31 @@ export const webSearchTool: AgentTool<{ queries: string[]; maxSources: number },
     }
     if (picked.length === 0) {
       const reason = errors.length ? [...new Set(errors)].join("; ") : irrelevant ? `all ${irrelevant} search results were off-topic` : "web search returned no results";
-      return { available: false, queries, sources: [], reason };
+      return { status: "unavailable", available: false, queries, sources: [], reason, live };
     }
 
     // Each page fetch is raced against what's left of the overall budget, so
     // one slow page can't push the step past it; a page that doesn't make it
     // falls back to its search snippet.
+    const pageFailures = new Map<string, string>();
     const fetchPage = async (r: (typeof picked)[number]) => {
       const left = OVERALL_DEADLINE_MS - (Date.now() - start);
-      if (left < 2_000 || /\.pdf($|\?)/i.test(r.url)) return null;
-      try {
-        const page = await withTimeout(scrapePage(r.url), left, `page fetch ${r.url}`);
-        return page.excerpt.length > 200 ? page : null;
-      } catch {
+      if (left < 2_000) {
+        pageFailures.set(r.url, "step time budget exhausted");
         return null;
       }
+      if (/\.pdf($|\?)/i.test(r.url)) {
+        pageFailures.set(r.url, "PDF not read");
+        return null;
+      }
+      try {
+        const page = await withTimeout(scrapePage(r.url), left, `page fetch ${r.url}`);
+        if (page.excerpt.length > 200) return page;
+        pageFailures.set(r.url, "page had too little readable text");
+      } catch (err) {
+        pageFailures.set(r.url, err instanceof Error ? err.message : "fetch failed");
+      }
+      return null;
     };
     // The Bright Data scraping browser rejects concurrent navigations, so it
     // stays sequential; plain fetch() has no such limit.
@@ -120,12 +153,22 @@ export const webSearchTool: AgentTool<{ queries: string[]; maxSources: number },
       if (page) sources.push(ctx.sources.add({ url: r.url, title: r.title || page.title, excerpt: page.excerpt, fetchedAt, query: r.query, kind: "page" }));
       else if (r.snippet) sources.push(ctx.sources.add({ url: r.url, title: r.title, excerpt: r.snippet, fetchedAt, query: r.query, kind: "snippet" }));
     });
-    if (sources.length === 0) return { available: false, queries, sources: [], reason: "all page fetches failed and no snippets were usable" };
-    return { available: true, queries, sources };
+    live.pages.succeeded = picked.filter((_, i) => pages[i]).map((r) => r.url);
+    live.pages.failed = picked.filter((_, i) => !pages[i]).map((r) => ({ url: r.url, reason: pageFailures.get(r.url) ?? "fetch failed" }));
+    if (sources.length === 0) {
+      return { status: "unavailable", available: false, queries, sources: [], reason: "all page fetches failed and no snippets were usable", live };
+    }
+    const degraded = live.engines.failed.length > 0 || live.pages.failed.length > 0 || errors.length > 0;
+    const notes = [
+      live.engines.failed.length ? `search engines failed: ${live.engines.failed.map((f) => `${f.name} (${f.reason})`).join(", ")}` : "",
+      errors.length ? `${errors.length} of ${queries.length} queries returned nothing` : "",
+      live.pages.failed.length ? `${live.pages.failed.length} page(s) not read in full (snippet used where available)` : "",
+    ].filter(Boolean);
+    return { status: degraded ? "partial" : "ok", available: true, queries, sources, live, ...(degraded ? { reason: notes.join("; ") } : {}) };
   },
   summarize(o) {
     if (!o.available) return `no live sources (${o.reason})`;
     const pages = o.sources.filter((s) => s.kind === "page").length;
-    return `${o.sources.length} sources (${pages} full pages) for ${o.queries.length} quer${o.queries.length === 1 ? "y" : "ies"}`;
+    return `${o.status === "partial" ? "PARTIAL: " : ""}${o.sources.length} sources (${pages} full pages) for ${o.queries.length} quer${o.queries.length === 1 ? "y" : "ies"}${o.reason ? ` - ${o.reason}` : ""}`;
   },
 };

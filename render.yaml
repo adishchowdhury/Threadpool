@@ -1,0 +1,16 @@
+# Render blueprint for the SearXNG search backend (Dashboard > New > Blueprint).
+services:
+  - type: web
+    name: kraven-searxng
+    runtime: docker
+    plan: free
+    dockerContext: ./infra/searxng
+    dockerfilePath: ./infra/searxng/Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: SEARXNG_SECRET
+        generateValue: true
+      - key: PORT
+        value: "8080"
+      - key: SEARXNG_BASE_URL
+        sync: false
