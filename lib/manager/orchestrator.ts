@@ -139,6 +139,21 @@ export async function runTask(taskId: string) {
   // narrowed inconsistently once that function runs in parallel branches).
   const reviewOutcomeBox: { value: ReworkOutcome | null } = { value: null };
   const workStart = Date.now();
+  // Hard wall-clock budget for the whole task, safely under the serverless
+  // maxDuration (app/api/tasks/route.ts, currently 300s). Per-call timeouts
+  // (lib/manager/sarvam.ts) bound any SINGLE Sarvam call, but a subtask can
+  // still legitimately spend two full attempts plus reassignment to another
+  // agent - each a real, slow-but-succeeding call - and add up to more time
+  // than the platform gives this invocation to live. Checked before starting
+  // a new subtask and before each retry/reassignment decision so a step that
+  // can't fit in what's left degrades gracefully (the same soft-skip path as
+  // "no eligible agent" - see degraded.push below) instead of still being
+  // mid-attempt when the platform kills the function outright, which is what
+  // left tasks silently stuck in EXECUTING before the GET /api/tasks/:id
+  // reconciliation check could even notice.
+  const TASK_TIME_BUDGET_MS = 260_000;
+  const taskDeadline = workStart + TASK_TIME_BUDGET_MS;
+  const pastDeadline = () => Date.now() > taskDeadline;
   // Subtasks that could not be completed (no agent, or QA rejected every
   // attempt and every reassignment). These don't abort the task by
   // themselves - buildFinalReport already skips subtasks with no output, so
@@ -164,6 +179,14 @@ export async function runTask(taskId: string) {
   // further work once that happens.
   async function processSubtask(subtask: (typeof createdSubtasks)[number]): Promise<void> {
     if (await isCancelled(taskId)) return;
+
+    if (pastDeadline()) {
+      const reason = `Skipped '${subtask.type}': the task ran out of its execution time budget before this step could start.`;
+      await db.subtask.update({ where: { id: subtask.id }, data: { status: "FAILED" } });
+      await emitEvent(db, { taskId, actor: "manager", eventType: "SUBTASK_SKIPPED", payload: { subtaskId: subtask.id, type: subtask.type, reason } });
+      degraded.push({ type: subtask.type, requiredCapability: subtask.requiredCapability, reason });
+      return;
+    }
 
     const currentTask = await db.task.findUniqueOrThrow({ where: { id: taskId } });
 
@@ -552,7 +575,7 @@ export async function runTask(taskId: string) {
           payload: { subtaskId: subtask.id, attempt: attemptNumber, reason: qa.verdict.reason, issues: qa.verdict.issues, qaSource: qa.source },
         });
 
-        if (localAttempt < maxAttempts) {
+        if (localAttempt < maxAttempts && !pastDeadline()) {
           // Path A: retry the same agent with QA's specific findings as feedback.
           feedback = qa.verdict.issues.length > 0 ? `${qa.verdict.reason} Specific issues: ${qa.verdict.issues.join("; ")}` : qa.verdict.reason;
           continue;
@@ -562,7 +585,7 @@ export async function runTask(taskId: string) {
         // task budget, then the manager re-ranks every untried agent on fresh
         // data (updated reputation, real remaining budget) and reallocates
         // the escrow to the best one - repeating up to MAX_REASSIGNMENTS.
-        if (reassignments < MAX_REASSIGNMENTS) {
+        if (reassignments < MAX_REASSIGNMENTS && !pastDeadline()) {
           const failedAgentId = active.agent.id;
           await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "reassigned_to_alternate_agent" });
 
@@ -621,10 +644,13 @@ export async function runTask(taskId: string) {
           continue;
         }
 
-        // Path C: reassignment limit hit - same soft-skip as above, not a
-        // whole-task failure.
+        // Path C: reassignment limit hit (or the task's time budget ran out
+        // before another attempt/reassignment could fit) - same soft-skip as
+        // above, not a whole-task failure.
         {
-          const reason = `failed QA after ${maxAttempts} attempts (reassignment limit reached): ${qa.verdict.reason}`;
+          const reason = pastDeadline()
+            ? `failed QA and the task ran out of its execution time budget before another attempt could run: ${qa.verdict.reason}`
+            : `failed QA after ${maxAttempts} attempts (reassignment limit reached): ${qa.verdict.reason}`;
           await refundAgentEscrow({ agentEscrowId: activeEscrowId, reason: "qa_failed_max_attempts" });
           await db.subtask.update({
             where: { id: subtask.id },

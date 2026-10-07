@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_CALL_TIMEOUT_MS, type SarvamModelTier } from "@/lib/manager/sarvam";
+import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_CALL_TIMEOUT_MS, sarvamCallTimeoutMs, type SarvamModelTier } from "@/lib/manager/sarvam";
 import type { CapabilityRunInput } from "@/lib/capabilities/types";
 
 export type Usage = { inputTokens: number; outputTokens: number };
@@ -23,10 +23,16 @@ export const BRIEF_REASONING_NOTE =
 export async function generateWithReasoningGuard(params: { tier: SarvamModelTier; system?: string | null; prompt: string }): Promise<{ text: string; usage: Usage }> {
   let usage: Usage | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
+    // Only the first attempt needs the tier's full budget - the retry
+    // explicitly asks for brief reasoning, so it should come back fast; giving
+    // it the same long budget as attempt 0 let a single stalled call burn
+    // 2x a premium tier's ~100-150s timeout, most of a whole task's
+    // serverless duration budget on its own.
+    const timeoutMs = attempt === 0 ? sarvamCallTimeoutMs({ tier: params.tier }) : SARVAM_CALL_TIMEOUT_MS;
     const res = await generateText({
       model: sarvamModel(params.tier),
       maxOutputTokens: SARVAM_MAX_OUTPUT_TOKENS,
-      abortSignal: AbortSignal.timeout(SARVAM_CALL_TIMEOUT_MS),
+      abortSignal: AbortSignal.timeout(timeoutMs),
       ...(params.system ? { system: params.system } : {}),
       prompt: attempt === 0 ? params.prompt : params.prompt + BRIEF_REASONING_NOTE,
     });

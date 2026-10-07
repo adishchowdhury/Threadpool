@@ -1,6 +1,6 @@
 import { generateText } from "ai";
 import { z } from "zod";
-import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_LARGE_OUTPUT_TOKENS, SARVAM_CALL_TIMEOUT_MS, type SarvamModelTier } from "@/lib/manager/sarvam";
+import { sarvamModel, SARVAM_MAX_OUTPUT_TOKENS, SARVAM_LARGE_OUTPUT_TOKENS, SARVAM_CALL_TIMEOUT_MS, sarvamCallTimeoutMs, type SarvamModelTier } from "@/lib/manager/sarvam";
 import { BRIEF_REASONING_NOTE } from "@/lib/capabilities/llm";
 
 // Sarvam reasoning models may emit <think> blocks and fenced JSON, so ask for
@@ -43,12 +43,18 @@ export async function generateStructuredWithUsage<T extends z.ZodType>(params: {
   const maxOutputTokens = params.largeOutput && resolvedTier !== "economy" ? SARVAM_LARGE_OUTPUT_TOKENS : SARVAM_MAX_OUTPUT_TOKENS;
 
   for (let attempt = 0; attempt < 2; attempt++) {
+    // Only attempt 0 gets the full tier/output-sized budget. The retry is
+    // explicitly told to keep reasoning brief, so it should come back fast -
+    // giving it the same long budget let a single stalled large-output,
+    // high-effort call (e.g. the final integration review) burn up to
+    // 2x150s, most of the whole task's serverless duration limit, on its own.
+    const timeoutMs = attempt === 0 ? sarvamCallTimeoutMs({ tier: params.tier, largeOutput: params.largeOutput }) : SARVAM_CALL_TIMEOUT_MS;
     const res = await generateText({
       model: sarvamModel(params.tier),
       // Judgments (QA, planning) should be repeatable, not sampled.
       temperature: 0,
       maxOutputTokens,
-      abortSignal: AbortSignal.timeout(SARVAM_CALL_TIMEOUT_MS),
+      abortSignal: AbortSignal.timeout(timeoutMs),
       ...(params.system ? { system: params.system } : {}),
       prompt: attempt === 0 ? basePrompt : basePrompt + BRIEF_REASONING_NOTE,
     });

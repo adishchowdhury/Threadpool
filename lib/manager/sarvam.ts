@@ -30,6 +30,23 @@ export type SarvamModelTier = keyof typeof SARVAM_MODEL_TIERS;
 // other failed attempt.
 export const SARVAM_CALL_TIMEOUT_MS = 45_000;
 
+// A flat 45s budget is enough for an economy-tier call, but it was cutting
+// off "reasoning_effort: high" calls (the premium tier) and large-output
+// calls (SARVAM_LARGE_OUTPUT_TOKENS, e.g. the final integration review)
+// before the model could realistically finish - a 16K-token, high-effort
+// generation routinely needs well over 45s. The abort was firing as
+// designed, but the result was premium-tier agents and the review step
+// systematically producing "[EXECUTION ERROR]"/placeholder output on every
+// attempt (never a genuine provider outage), burning through
+// retry/reassignment attempts and driving total task time up instead of
+// down. Size the budget to what the call actually asked for instead.
+export function sarvamCallTimeoutMs(params: { tier?: SarvamModelTier; largeOutput?: boolean } = {}): number {
+  const spec = SARVAM_MODEL_TIERS[params.tier ?? "economy"] ?? SARVAM_MODEL_TIERS.economy;
+  if (spec.reasoningEffort === "high") return params.largeOutput ? 150_000 : 100_000;
+  if (spec.reasoningEffort === "low") return 70_000;
+  return SARVAM_CALL_TIMEOUT_MS;
+}
+
 export function sarvamModel(tier: SarvamModelTier = "economy") {
   const apiKey = process.env.SARVAM_API_KEY;
   if (!apiKey) {
