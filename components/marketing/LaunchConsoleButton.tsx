@@ -49,7 +49,7 @@ export function LaunchConsoleButton({
         onClick={handleLaunch}
         onMouseEnter={scramble.onMouseEnter}
         onMouseLeave={scramble.onMouseLeave}
-        className={`inline-flex items-center justify-center gap-2 border border-neutral-900 bg-neutral-900 font-medium text-white transition-colors hover:bg-neutral-800 ${sizeClasses} ${className}`}
+        className={`inline-flex items-center justify-center gap-2 border border-neutral-900 bg-neutral-900 font-medium text-white transition-colors hover:bg-neutral-800 dark:border-white dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200 ${sizeClasses} ${className}`}
       >
         <ScrambleText text={label} active={scramble.hovered} />
         <ArrowRight className="size-3.5" />

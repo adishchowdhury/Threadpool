@@ -72,15 +72,15 @@ export function HeroSimulation() {
             "conic-gradient(from 0deg, transparent 0%, oklch(0.82 0.14 85 / 0.9) 8%, transparent 18%, transparent 50%, oklch(0.2 0 0 / 0.5) 58%, transparent 68%, transparent 100%)",
         }}
       />
-      <div className="relative w-full rounded-[calc(1rem-1px)] border border-neutral-200/60 bg-white px-6 py-5 text-left shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
-        <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
-          <span className="flex items-center gap-2 text-[14.5px] font-medium text-neutral-900">
-            <span className="grid size-5 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-600">
+      <div className="relative w-full rounded-[calc(1rem-1px)] border border-neutral-200/60 bg-white px-6 py-5 text-left shadow-[0_1px_2px_rgba(0,0,0,0.03)] dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="flex items-center justify-between border-b border-neutral-100 pb-3 dark:border-neutral-800">
+          <span className="flex items-center gap-2 text-[14.5px] font-medium text-neutral-900 dark:text-neutral-50">
+            <span className="grid size-5 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
               <Check className="size-3" strokeWidth={3} />
             </span>
             {STEPS.length} steps · {AGENT_COUNT} agents
           </span>
-          <ChevronUp className="size-4 text-neutral-300" />
+          <ChevronUp className="size-4 text-neutral-300 dark:text-neutral-600" />
         </div>
 
         <ol className="pt-1">
@@ -90,15 +90,15 @@ export function HeroSimulation() {
               <li key={step.title} className="relative flex gap-3 pb-5 last:pb-0">
                 {!isLast && (
                   <span
-                    className="absolute top-6 left-2.75 w-px bg-neutral-200"
+                    className="absolute top-6 left-2.75 w-px bg-neutral-200 dark:bg-neutral-800"
                     style={{ bottom: 0 }}
                   />
                 )}
                 <span
                   className={`relative z-10 mt-0.5 grid size-5.5 shrink-0 place-items-center rounded-full border ${
                     step.outcome === "blocked"
-                      ? "border-red-200 bg-red-50 text-red-500"
-                      : "border-emerald-200 bg-emerald-50 text-emerald-600"
+                      ? "border-red-200 bg-red-50 text-red-500 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400"
                   }`}
                 >
                   {step.outcome === "done" && <Check className="size-3" strokeWidth={3} />}
@@ -106,10 +106,10 @@ export function HeroSimulation() {
                 </span>
 
                 <div className="min-w-0 flex-1">
-                  <p className="text-[14.5px] leading-snug text-neutral-900">
+                  <p className="text-[14.5px] leading-snug text-neutral-900 dark:text-neutral-50">
                     <span className="font-medium">{step.title}</span>
                     {step.agent && (
-                      <span className="text-neutral-400">
+                      <span className="text-neutral-400 dark:text-neutral-500">
                         {" "}
                         {step.agent} · {step.tokens?.toLocaleString()} token{step.tokens === 1 ? "" : "s"}
                       </span>
@@ -117,13 +117,13 @@ export function HeroSimulation() {
                   </p>
                   <p
                     className={`mt-0.5 text-[13px] leading-snug ${
-                      step.outcome === "blocked" ? "text-red-500" : "text-neutral-400"
+                      step.outcome === "blocked" ? "text-red-500 dark:text-red-400" : "text-neutral-400 dark:text-neutral-500"
                     }`}
                   >
                     {step.sub(step.attempts)}
                   </p>
                   {step.why && (
-                    <p className="mt-1 flex items-center gap-1 text-[12px] text-neutral-300">
+                    <p className="mt-1 flex items-center gap-1 text-[12px] text-neutral-300 dark:text-neutral-600">
                       Why this agent?
                       <ChevronDown className="size-3" />
                     </p>

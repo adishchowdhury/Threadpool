@@ -43,14 +43,14 @@ export function ContactForm() {
   if (status === "success") {
     return (
       <div className="py-6 text-center">
-        <p className="mb-2 text-lg font-semibold text-neutral-900">Message sent.</p>
-        <p className="text-sm text-neutral-500">
+        <p className="mb-2 text-lg font-semibold text-neutral-900 dark:text-neutral-50">Message sent.</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Thanks for reaching out - we&apos;ll get back to you at the email address you provided.
         </p>
         <button
           type="button"
           onClick={() => setStatus("idle")}
-          className="mt-6 inline-flex h-8 items-center border border-neutral-300 px-4 font-mono text-[12px] uppercase tracking-wider text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900"
+          className="mt-6 inline-flex h-8 items-center border border-neutral-300 px-4 font-mono text-[12px] uppercase tracking-wider text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-white dark:hover:text-white"
         >
           Send another message
         </button>
@@ -61,7 +61,7 @@ export function ContactForm() {
   return (
     <form onSubmit={onSubmit} className="space-y-8 max-w-xl">
       <div>
-        <label htmlFor="name" className="mb-2 block font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+        <label htmlFor="name" className="mb-2 block font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
           Name
         </label>
         <input
@@ -71,12 +71,12 @@ export function ContactForm() {
           required
           maxLength={200}
           disabled={status === "submitting"}
-          className="w-full border-0 border-b border-neutral-200 bg-transparent px-0 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none transition-colors focus:border-neutral-900 disabled:opacity-50"
+          className="w-full border-0 border-b border-neutral-200 bg-transparent px-0 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none transition-colors focus:border-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-50 dark:placeholder:text-neutral-500 dark:focus:border-white"
           placeholder="Your name"
         />
       </div>
       <div>
-        <label htmlFor="email" className="mb-2 block font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+        <label htmlFor="email" className="mb-2 block font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
           Email
         </label>
         <input
@@ -86,12 +86,12 @@ export function ContactForm() {
           required
           maxLength={320}
           disabled={status === "submitting"}
-          className="w-full border-0 border-b border-neutral-200 bg-transparent px-0 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none transition-colors focus:border-neutral-900 disabled:opacity-50"
+          className="w-full border-0 border-b border-neutral-200 bg-transparent px-0 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none transition-colors focus:border-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-50 dark:placeholder:text-neutral-500 dark:focus:border-white"
           placeholder="you@example.com"
         />
       </div>
       <div>
-        <label htmlFor="message" className="mb-2 block font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+        <label htmlFor="message" className="mb-2 block font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
           Message
         </label>
         <textarea
@@ -102,17 +102,17 @@ export function ContactForm() {
           maxLength={5000}
           rows={5}
           disabled={status === "submitting"}
-          className="w-full resize-none border-0 border-b border-neutral-200 bg-transparent px-0 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none transition-colors focus:border-neutral-900 disabled:opacity-50"
+          className="w-full resize-none border-0 border-b border-neutral-200 bg-transparent px-0 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none transition-colors focus:border-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-50 dark:placeholder:text-neutral-500 dark:focus:border-white"
           placeholder="How can we help?"
         />
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       <button
         type="submit"
         disabled={status === "submitting"}
-        className="inline-flex h-11 items-center justify-center bg-neutral-900 px-7 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50"
+        className="inline-flex h-11 items-center justify-center bg-neutral-900 px-7 text-sm font-medium text-white transition-colors hover:bg-neutral-800 disabled:opacity-50 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
       >
         {status === "submitting" ? "Sending…" : "Send message"}
       </button>

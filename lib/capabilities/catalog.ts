@@ -22,6 +22,18 @@ export const CAPABILITY_IDS = [
   "review",
   "risk_assessment",
   "regulatory_compliance",
+  "due_diligence",
+  "industry_benchmarking",
+  "forecasting",
+  "sentiment_analysis",
+  "legal_analysis",
+  "seo_research",
+  "pricing_strategy",
+  "customer_research",
+  "fact_checking",
+  "editing",
+  "translation",
+  "presentation_design",
 ] as const;
 
 export type CapabilityId = (typeof CAPABILITY_IDS)[number];
@@ -169,6 +181,124 @@ export const CAPABILITY_CATALOG: Record<CapabilityId, CapabilitySpec> = {
     tools: ["web_search", "upstream_lookup"],
     webGrounded: true,
     budgetPriority: 4,
+  },
+  due_diligence: {
+    id: "due_diligence",
+    label: "Due diligence",
+    stage: "gather",
+    plannerGuidance:
+      "Verify claims about a specific named company/deal (founders, funding history, legal standing, red flags) against citable sources before analysis relies on them. Use when the task names a specific company/deal to vet or asks for background/red-flag checks.",
+    tools: ["web_search", "upstream_lookup"],
+    webGrounded: true,
+    budgetPriority: 6,
+  },
+  industry_benchmarking: {
+    id: "industry_benchmarking",
+    label: "Industry benchmarking",
+    stage: "analyze",
+    plannerGuidance:
+      "Compare a company or segment's metrics against industry-typical benchmarks (margins, growth, multiples, headcount ratios). Use when the task asks how something compares to 'industry average' or peers generally, as opposed to named competitors (see competitive_analysis).",
+    tools: ["upstream_lookup", "analyze_data", "calculate"],
+    webGrounded: false,
+    budgetPriority: 5,
+  },
+  forecasting: {
+    id: "forecasting",
+    label: "Forecasting",
+    stage: "analyze",
+    plannerGuidance:
+      "Project forward from historical/observed figures (revenue, growth, demand) with an explicit method and assumptions, given as a range rather than a false-precision point estimate. Use when the task asks to project, forecast, or estimate future values.",
+    tools: ["upstream_lookup", "calculate"],
+    webGrounded: false,
+    budgetPriority: 5,
+  },
+  sentiment_analysis: {
+    id: "sentiment_analysis",
+    label: "Sentiment analysis",
+    stage: "analyze",
+    plannerGuidance:
+      "Gauge public, customer or investor sentiment from reviews, social commentary or press coverage. Use when the task asks about brand perception, customer sentiment, or public reaction.",
+    tools: ["web_search", "upstream_lookup"],
+    webGrounded: true,
+    budgetPriority: 4,
+  },
+  legal_analysis: {
+    id: "legal_analysis",
+    label: "Legal analysis",
+    stage: "analyze",
+    plannerGuidance:
+      "Identify legal structuring, contract, IP or liability considerations, distinct from regulatory licensing (see regulatory_compliance). Use when the task involves legal structuring, IP, liability or contract questions.",
+    tools: ["web_search", "upstream_lookup"],
+    webGrounded: true,
+    budgetPriority: 4,
+  },
+  seo_research: {
+    id: "seo_research",
+    label: "SEO research",
+    stage: "gather",
+    plannerGuidance:
+      "Live search for keyword demand, search intent and ranking competition for a topic or product. Use when the task asks about search visibility, keywords, or organic traffic opportunity.",
+    tools: ["web_search"],
+    webGrounded: false,
+    budgetPriority: 3,
+  },
+  pricing_strategy: {
+    id: "pricing_strategy",
+    label: "Pricing strategy",
+    stage: "analyze",
+    plannerGuidance: "Recommend a pricing model and level using gathered competitor and cost data, with the tradeoffs made explicit. Use when the task asks how to price a product or service.",
+    tools: ["upstream_lookup", "calculate"],
+    webGrounded: false,
+    budgetPriority: 5,
+  },
+  customer_research: {
+    id: "customer_research",
+    label: "Customer research",
+    stage: "gather",
+    plannerGuidance:
+      "Gather customer/user needs, pain points and buying criteria from live sources (reviews, forums, coverage of surveys). Use when the task needs voice-of-customer input rather than market-level structure.",
+    tools: ["web_search", "upstream_lookup"],
+    webGrounded: true,
+    budgetPriority: 6,
+  },
+  fact_checking: {
+    id: "fact_checking",
+    label: "Fact checking",
+    stage: "verify",
+    plannerGuidance:
+      "Independently re-verify specific factual claims in a draft against citable sources, separate from the general quality_verification review. Use when the task or draft contains claims that must be checked rather than merely judged for quality.",
+    tools: ["web_search", "upstream_lookup"],
+    webGrounded: true,
+    budgetPriority: 3,
+  },
+  editing: {
+    id: "editing",
+    label: "Editing",
+    stage: "verify",
+    plannerGuidance:
+      "Line-edit a draft for clarity, tone, grammar and structure without changing its substantive claims. Use when the task asks to polish, proofread or tighten existing prose rather than critique its content.",
+    tools: ["upstream_lookup"],
+    webGrounded: false,
+    budgetPriority: 2,
+  },
+  translation: {
+    id: "translation",
+    label: "Translation",
+    stage: "synthesize",
+    plannerGuidance: "Translate a finished or draft deliverable into another language, preserving figures and structure. Use only when the task explicitly asks for output in a different language.",
+    tools: ["upstream_lookup"],
+    webGrounded: false,
+    budgetPriority: 2,
+  },
+  presentation_design: {
+    id: "presentation_design",
+    label: "Presentation design",
+    stage: "synthesize",
+    plannerGuidance:
+      "Turn findings into a slide-style outline (one idea per slide, headline plus supporting bullets) instead of prose. Use when the task asks for a deck, slides, or pitch rather than a written report.",
+    tools: ["upstream_lookup"],
+    webGrounded: false,
+    budgetPriority: 9,
   },
 };
 

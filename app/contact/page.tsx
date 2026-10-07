@@ -18,7 +18,7 @@ export default function ContactPage() {
         <ContactForm />
       </div>
 
-      <div className="mt-14 border-t border-neutral-200 pt-8">
+      <div className="mt-14 border-t border-neutral-200 pt-8 dark:border-neutral-800">
         <h2>Other ways to reach us</h2>
         <p>
           Prefer email? Write to us directly at{" "}

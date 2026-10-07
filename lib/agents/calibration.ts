@@ -77,6 +77,55 @@ const BENCHMARKS: Record<string, { taskPrompt: string; description: string; upst
     taskPrompt: `Review this draft report:\n\n${SAMPLE_REPORT}`,
     description: "Review: give the main strengths and the most important problems, with concrete fixes.",
   },
+  due_diligence: {
+    taskPrompt: "Vet the background of fintech startup 'Northwind Pay': founders, funding history, and any public red flags.",
+    description: "Due diligence: verify specific factual claims about the named company from citable sources and flag anything unverifiable.",
+  },
+  industry_benchmarking: {
+    taskPrompt: `Benchmark this company dataset against typical SaaS/fintech industry margins and growth rates:\n\n\`\`\`csv\n${BENCHMARK_DATA}\n\`\`\``,
+    description: "Industry benchmarking: compare each company's growth and revenue-per-employee against stated industry-typical ranges, flagging over/under-performers.",
+  },
+  forecasting: {
+    taskPrompt: `Using this revenue history, forecast 2025-2026 revenue for each company:\n\n\`\`\`csv\n${BENCHMARK_DATA}\n\`\`\``,
+    description: "Forecasting: project 2025 and 2026 revenue for each company with a stated method and a range, not a single point estimate.",
+  },
+  sentiment_analysis: {
+    taskPrompt: "What is the current public and investor sentiment toward Indian neobanks?",
+    description: "Sentiment analysis: characterize sentiment (positive/neutral/negative) with cited examples, not vibes.",
+  },
+  legal_analysis: {
+    taskPrompt: "What legal structuring and IP considerations apply to a fintech startup licensing its lending algorithm to banks?",
+    description: "Legal analysis: identify the specific legal/IP/liability considerations and their practical impact.",
+  },
+  seo_research: {
+    taskPrompt: "What search keywords and intent should a startup selling 'SME invoice financing' target?",
+    description: "SEO research: identify high-intent keywords and the competitive difficulty of ranking for them.",
+  },
+  pricing_strategy: {
+    taskPrompt: "Recommend a pricing model for a B2B SaaS tool selling to 50-person startups, given competitors price at $49-99/seat/month.",
+    description: "Pricing strategy: recommend a specific pricing model and level with tradeoffs stated.",
+  },
+  customer_research: {
+    taskPrompt: "What do small business owners say are their biggest pain points with existing invoice financing products?",
+    description: "Customer research: surface specific voice-of-customer pain points and buying criteria from citable sources.",
+  },
+  fact_checking: {
+    taskPrompt: `Fact-check this draft report:\n\n${SAMPLE_REPORT}`,
+    description: "Fact checking: verify each factual claim in the draft against citable sources and flag any that cannot be verified.",
+    upstream: [{ sequence: 0, type: "report_writing", capability: "report_generation", output: SAMPLE_REPORT }],
+  },
+  editing: {
+    taskPrompt: `Edit this draft for clarity and tone without changing its claims:\n\n${SAMPLE_REPORT}`,
+    description: "Editing: tighten prose, fix grammar/structure, and preserve every figure and claim exactly.",
+  },
+  translation: {
+    taskPrompt: `Translate this draft into Hindi:\n\n${SAMPLE_REPORT}`,
+    description: "Translation: translate faithfully into Hindi, preserving every figure.",
+  },
+  presentation_design: {
+    taskPrompt: `Turn this report into a slide-style outline:\n\n${SAMPLE_REPORT}`,
+    description: "Presentation design: produce a slide-by-slide outline (headline + 3-4 bullets per slide) covering the same content.",
+  },
 };
 
 export interface CalibrationRun {

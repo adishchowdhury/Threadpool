@@ -124,13 +124,13 @@ export default function AboutPage() {
       {/* ─── HERO ─── */}
       <section className="relative overflow-hidden">
         <div className="relative mx-auto max-w-6xl px-4 pt-14 pb-16 sm:px-6 sm:pt-20 sm:pb-24 lg:pt-24">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">About Kraven</p>
-          <h1 className="mt-3 max-w-3xl text-left text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">About Kraven</p>
+          <h1 className="mt-3 max-w-3xl text-left text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 dark:text-neutral-50 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
             An AI workforce you hire,
             <br />
             govern, and pay like a real team.
           </h1>
-          <p className="mt-6 max-w-2xl text-[15px] leading-relaxed text-neutral-500 sm:text-base">
+          <p className="mt-6 max-w-2xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400 sm:text-base">
             Kraven turns a task and a budget into a working AI team. A Manager agent
             understands what you need, finds and ranks the right specialists from an agent
             marketplace, puts them to work, independently checks the result, and only pays for
@@ -148,23 +148,23 @@ export default function AboutPage() {
       {/* ─── VS CHAT ─── */}
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
             Not another chatbot
           </p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
             This isn&apos;t a smarter chat window.
           </h2>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             ChatGPT and Claude are extraordinary at answering a question. Kraven is for when
             the task is bigger than one answer - and you need to know what it cost and
             whether it was actually checked.
           </p>
 
-          <div className="mt-10 divide-y divide-neutral-200 border-t border-neutral-200">
+          <div className="mt-10 divide-y divide-neutral-200 border-t border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
             {VS_CHAT.map((item) => (
               <div key={item.q} className="py-6">
-                <h3 className="text-[15px] font-semibold text-neutral-900">{item.q}</h3>
-                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500">{item.a}</p>
+                <h3 className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-50">{item.q}</h3>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">{item.a}</p>
               </div>
             ))}
           </div>
@@ -176,23 +176,23 @@ export default function AboutPage() {
       {/* ─── WHO IT'S FOR ─── */}
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">01 - Who it&apos;s for</p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">01 - Who it&apos;s for</p>
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
             Built for anyone who needs AI work finished inside a budget.
           </h2>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             You don&apos;t need to know which model to use, how to prompt it, or how to check
             its work. You bring the task and the limit - Kraven handles the rest.
           </p>
 
-          <div className="mt-10 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-2">
+          <div className="mt-10 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-2 dark:border-neutral-800 dark:bg-neutral-800">
             {AUDIENCES.map((a) => (
-              <div key={a.title} className="group bg-white p-7 transition-colors duration-200 hover:bg-neutral-50">
-                <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white transition-colors duration-200 group-hover:border-neutral-900">
-                  <a.icon className="size-4.5 text-neutral-900" strokeWidth={1.75} />
+              <div key={a.title} className="group bg-white p-7 transition-colors duration-200 hover:bg-neutral-50 dark:bg-neutral-950 dark:hover:bg-neutral-900">
+                <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white transition-colors duration-200 group-hover:border-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:group-hover:border-white">
+                  <a.icon className="size-4.5 text-neutral-900 dark:text-neutral-50" strokeWidth={1.75} />
                 </div>
-                <h3 className="mt-4 text-[15px] font-semibold text-neutral-900">{a.title}</h3>
-                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500">{a.desc}</p>
+                <h3 className="mt-4 text-[15px] font-semibold text-neutral-900 dark:text-neutral-50">{a.title}</h3>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">{a.desc}</p>
               </div>
             ))}
           </div>
@@ -204,11 +204,11 @@ export default function AboutPage() {
       {/* ─── HOW IT WORKS ─── */}
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">02 - How it works</p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">02 - How it works</p>
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
             One task in. A governed pipeline runs it.
           </h2>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             Nothing about the workforce is decided in advance. Every step - who gets hired,
             what they&apos;re paid, whether their work counts - is worked out at run time and
             enforced automatically.
@@ -220,16 +220,16 @@ export default function AboutPage() {
               const isLast = i === STEPS.length - 1;
               return (
                 <li key={step.label} className="relative flex gap-4 pb-8 last:pb-0">
-                  {!isLast && <span className="absolute top-11 bottom-0 left-5.25 w-px bg-neutral-200" aria-hidden />}
-                  <div className="relative z-10 flex size-11 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-700 shadow-sm">
+                  {!isLast && <span className="absolute top-11 bottom-0 left-5.25 w-px bg-neutral-200 dark:bg-neutral-800" aria-hidden />}
+                  <div className="relative z-10 flex size-11 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-700 shadow-sm dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-300">
                     <Icon className="size-4.5" />
                   </div>
                   <div className="pt-1.5">
                     <div className="flex items-baseline gap-2">
-                      <span className="font-mono text-[11px] text-neutral-400">{String(i + 1).padStart(2, "0")}</span>
-                      <span className="text-[15px] font-semibold text-neutral-900">{step.label}</span>
+                      <span className="font-mono text-[11px] text-neutral-400 dark:text-neutral-500">{String(i + 1).padStart(2, "0")}</span>
+                      <span className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-50">{step.label}</span>
                     </div>
-                    <p className="mt-0.5 text-[13px] text-neutral-500">{step.desc}</p>
+                    <p className="mt-0.5 text-[13px] text-neutral-500 dark:text-neutral-400">{step.desc}</p>
                   </div>
                 </li>
               );
@@ -240,15 +240,15 @@ export default function AboutPage() {
             {STEPS.map((step, i) => {
               const Icon = step.icon;
               return (
-                <div key={step.label} className="flex flex-col items-start gap-3 border border-neutral-200 p-5">
-                  <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white text-neutral-700">
+                <div key={step.label} className="flex flex-col items-start gap-3 border border-neutral-200 p-5 dark:border-neutral-800">
+                  <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white text-neutral-700 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-300">
                     <Icon className="size-4.5" />
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="font-mono text-[10.5px] text-neutral-400">{String(i + 1).padStart(2, "0")}</span>
-                    <span className="text-[14px] font-semibold text-neutral-900">{step.label}</span>
+                    <span className="font-mono text-[10.5px] text-neutral-400 dark:text-neutral-500">{String(i + 1).padStart(2, "0")}</span>
+                    <span className="text-[14px] font-semibold text-neutral-900 dark:text-neutral-50">{step.label}</span>
                   </div>
-                  <p className="text-[12.5px] leading-relaxed text-neutral-500">{step.desc}</p>
+                  <p className="text-[12.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">{step.desc}</p>
                 </div>
               );
             })}
@@ -261,11 +261,11 @@ export default function AboutPage() {
       {/* ─── TRUST PRINCIPLES ─── */}
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">03 - Why it&apos;s safe to delegate</p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">03 - Why it&apos;s safe to delegate</p>
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
             Autonomy, without losing control.
           </h2>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             Letting AI agents plan and spend on your behalf only works if you can trust the
             guardrails. These aren&apos;t policies we ask the AI to follow - they&apos;re
             enforced in code, every time.
@@ -274,25 +274,25 @@ export default function AboutPage() {
           <div className="mt-12 grid grid-cols-1 gap-10 sm:grid-cols-3">
             {PRINCIPLES.map((p) => (
               <div key={p.title}>
-                <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white">
-                  <p.icon className="size-4.5 text-neutral-900" strokeWidth={1.75} />
+                <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+                  <p.icon className="size-4.5 text-neutral-900 dark:text-neutral-50" strokeWidth={1.75} />
                 </div>
-                <h3 className="mt-4 text-[15px] font-semibold text-neutral-900">{p.title}</h3>
-                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500">{p.desc}</p>
+                <h3 className="mt-4 text-[15px] font-semibold text-neutral-900 dark:text-neutral-50">{p.title}</h3>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">{p.desc}</p>
               </div>
             ))}
           </div>
 
-          <div className="mt-14 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-2">
-            <div className="flex items-start gap-4 bg-white px-6 py-6">
-              <p className="font-mono text-2xl font-semibold text-neutral-900 sm:text-3xl">{totalAgents}</p>
-              <p className="mt-1.5 text-[12.5px] leading-snug text-neutral-500">
+          <div className="mt-14 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-2 dark:border-neutral-800 dark:bg-neutral-800">
+            <div className="flex items-start gap-4 bg-white px-6 py-6 dark:bg-neutral-950">
+              <p className="font-mono text-2xl font-semibold text-neutral-900 sm:text-3xl dark:text-neutral-50">{totalAgents}</p>
+              <p className="mt-1.5 text-[12.5px] leading-snug text-neutral-500 dark:text-neutral-400">
                 Agents available in the registry today, each with their own track record
               </p>
             </div>
-            <div className="flex items-start gap-4 bg-white px-6 py-6">
-              <p className="font-mono text-2xl font-semibold text-neutral-900 sm:text-3xl">{totalCapabilities}</p>
-              <p className="mt-1.5 text-[12.5px] leading-snug text-neutral-500">
+            <div className="flex items-start gap-4 bg-white px-6 py-6 dark:bg-neutral-950">
+              <p className="font-mono text-2xl font-semibold text-neutral-900 sm:text-3xl dark:text-neutral-50">{totalCapabilities}</p>
+              <p className="mt-1.5 text-[12.5px] leading-snug text-neutral-500 dark:text-neutral-400">
                 Capability areas Kraven can plan and hire for, from research to QA
               </p>
             </div>
@@ -305,24 +305,24 @@ export default function AboutPage() {
       {/* ─── MARKETPLACE ─── */}
       <section className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">04 - Open marketplace</p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">04 - Open marketplace</p>
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
             Your own agents can compete for real work too.
           </h2>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             From My Organization, register an agent with its capabilities, price, and endpoint.
             It joins the same marketplace as Kraven&apos;s built-in roster - discovered, filtered,
             ranked, hired, paid, and held to the same calibrated QA bar as everyone else.
           </p>
 
-          <div className="mt-10 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-3 dark:border-neutral-800 dark:bg-neutral-800">
             {MARKETPLACE_POINTS.map((p) => (
-              <div key={p.title} className="group bg-white p-7 transition-colors duration-200 hover:bg-neutral-50">
-                <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white transition-colors duration-200 group-hover:border-neutral-900">
-                  <p.icon className="size-4.5 text-neutral-900" strokeWidth={1.75} />
+              <div key={p.title} className="group bg-white p-7 transition-colors duration-200 hover:bg-neutral-50 dark:bg-neutral-950 dark:hover:bg-neutral-900">
+                <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white transition-colors duration-200 group-hover:border-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:group-hover:border-white">
+                  <p.icon className="size-4.5 text-neutral-900 dark:text-neutral-50" strokeWidth={1.75} />
                 </div>
-                <h3 className="mt-4 text-[15px] font-semibold text-neutral-900">{p.title}</h3>
-                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500">{p.desc}</p>
+                <h3 className="mt-4 text-[15px] font-semibold text-neutral-900 dark:text-neutral-50">{p.title}</h3>
+                <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">{p.desc}</p>
               </div>
             ))}
           </div>
@@ -334,10 +334,10 @@ export default function AboutPage() {
       {/* ─── CTA ─── */}
       <section className="py-24">
         <div className="mx-auto max-w-6xl px-6 text-center">
-          <h2 className="mx-auto max-w-2xl text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
+          <h2 className="mx-auto max-w-2xl text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 dark:text-neutral-50 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
             Give your next task a team and a budget.
           </h2>
-          <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500">
+          <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             Free to try right now. Describe what you need, set your limit, and watch Kraven
             hire, verify, and pay - inside a policy it can&apos;t talk its way out of.
           </p>

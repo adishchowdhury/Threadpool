@@ -32,6 +32,7 @@ import { ScrambleText, useHoverScramble } from "./ScrambleText";
 import { SiteNavLinks } from "@/components/marketing/SiteNavLinks";
 import { FooterLinks } from "@/components/marketing/FooterLinks";
 import { MobileNav } from "@/components/marketing/MobileNav";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { LoginDialog } from "@/components/auth/login-dialog";
 import { firebaseConfigured } from "@/lib/firebase";
 import { useAuthUser } from "@/lib/use-auth-user";
@@ -152,7 +153,7 @@ export function HomePage() {
   }
 
   return (
-    <div className="bg-white text-neutral-900 lg:px-4">
+    <div className="bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-50 lg:px-4">
       <VerticalScaleBars />
       <LoginDialog
         open={loginOpen}
@@ -160,7 +161,7 @@ export function HomePage() {
         onSuccess={() => router.push("/dashboard")}
       />
       {/* ─── NAV ─── */}
-      <header className="sticky top-0 z-50 border-b border-neutral-200 bg-white/90 backdrop-blur">
+      <header className="sticky top-0 z-50 border-b border-neutral-200 bg-white/90 backdrop-blur dark:border-neutral-800 dark:bg-neutral-950/90">
         <div className="relative mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex shrink-0 items-center">
             <Image
@@ -168,13 +169,13 @@ export function HomePage() {
               alt="Kraven"
               width={2172}
               height={724}
-              className="h-9 w-auto"
+              className="h-9 w-auto dark:invert"
               priority
             />
           </Link>
 
-          <nav className="hidden items-center gap-5 font-mono text-[10.5px] uppercase tracking-wider text-neutral-400 xl:flex">
-            <SiteNavLinks linkClassName="transition-colors hover:text-neutral-900" />
+          <nav className="hidden items-center gap-5 font-mono text-[10.5px] uppercase tracking-wider text-neutral-400 xl:flex dark:text-neutral-500">
+            <SiteNavLinks linkClassName="transition-colors hover:text-neutral-900 dark:hover:text-white" />
           </nav>
 
           <div className="flex shrink-0 items-center gap-3">
@@ -183,11 +184,12 @@ export function HomePage() {
               onClick={handleLaunch}
               onMouseEnter={navLaunch.onMouseEnter}
               onMouseLeave={navLaunch.onMouseLeave}
-              className="inline-flex h-8 items-center gap-1.5 border border-neutral-900 bg-neutral-900 px-3.5 font-mono text-[12px] uppercase tracking-wider text-white transition-colors hover:bg-neutral-800"
+              className="inline-flex h-8 items-center gap-1.5 border border-neutral-900 bg-neutral-900 px-3.5 font-mono text-[12px] uppercase tracking-wider text-white transition-colors hover:bg-neutral-800 dark:border-white dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
               <ScrambleText text="Launch console" active={navLaunch.hovered} />
               <ArrowRight className="size-3.5" />
             </Link>
+            <ThemeToggle />
             <MobileNav />
           </div>
         </div>
@@ -197,32 +199,26 @@ export function HomePage() {
       <section className="relative overflow-hidden">
         <div className="relative mx-auto max-w-6xl px-4 pt-14 pb-16 sm:px-6 sm:pt-20 sm:pb-24 lg:pt-24">
           <div className="flex flex-col items-center gap-8 text-center">
-            <h1 className="max-w-4xl text-[22px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 sm:text-[2rem] sm:whitespace-nowrap lg:text-[2.3rem] xl:text-[2.5rem]">
+            <h1 className="max-w-4xl text-[22px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 dark:text-neutral-50 sm:text-[2rem] sm:whitespace-nowrap lg:text-[2.3rem] xl:text-[2.5rem]">
               Hire an AI{" "}
               <span className="relative inline-block whitespace-nowrap">
                 <span
                   aria-hidden
-                  className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] -rotate-1 bg-amber-300/80"
+                  className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] -rotate-1 bg-amber-300/80 dark:bg-amber-400/70"
                 />
                 <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">
                   workforce
                 </span>
               </span>
               {" "}- paid only when it{" "}
-              <span className="relative inline-block whitespace-nowrap">
-                <span
-                  aria-hidden
-                  className="absolute inset-x-[-0.08em] bottom-[0.08em] -z-10 h-[0.42em] rotate-1 bg-amber-300/80"
-                />
-                <span className="font-(family-name:--font-accent) text-[1.35em] italic tracking-normal">
-                  passes QA
-                </span>
+              <span className="relative inline-block whitespace-nowrap bg-black px-[0.15em] py-[0.08em] font-(family-name:--font-accent) text-[1.35em] italic tracking-normal text-white dark:bg-white dark:text-neutral-950">
+                passes QA
 
                 {/* v1 scope tag */}
-                <span className="anim-spring-pop absolute left-full bottom-[calc(100%+0.625rem)] inline-flex items-center whitespace-nowrap border border-neutral-200 bg-white px-2.5 py-1 font-mono text-[9px] font-normal not-italic uppercase tracking-wider text-neutral-500 shadow-sm">
+                <span className="anim-spring-pop absolute left-full bottom-[calc(100%+0.625rem)] inline-flex items-center whitespace-nowrap border border-neutral-200 bg-white px-2.5 py-1 font-mono text-[9px] font-normal not-italic uppercase tracking-wider text-neutral-500 shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400">
                   <span
                     aria-hidden
-                    className="absolute -bottom-1.25 left-3 size-2 rotate-45 border-r border-b border-neutral-200 bg-white"
+                    className="absolute -bottom-1.25 left-3 size-2 rotate-45 border-r border-b border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900"
                   />
                   v1 - text in, text out
                 </span>
@@ -230,7 +226,7 @@ export function HomePage() {
               .
             </h1>
 
-            <p className="max-w-xl text-[15px] leading-relaxed text-neutral-500 sm:text-base">
+            <p className="max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400 sm:text-base">
               Kraven discovers, ranks, and hires agents for your task from a live
               marketplace - then locks your budget in escrow and releases it
               only after an independent reviewer approves the work.
@@ -242,7 +238,7 @@ export function HomePage() {
                 onClick={handleLaunch}
                 onMouseEnter={heroLaunch.onMouseEnter}
                 onMouseLeave={heroLaunch.onMouseLeave}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 border border-neutral-900 bg-neutral-900 px-5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 sm:w-auto"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 border border-neutral-900 bg-neutral-900 px-5 text-sm font-medium text-white transition-colors hover:bg-neutral-800 dark:border-white dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200 sm:w-auto"
               >
                 <ScrambleText text="Launch console" active={heroLaunch.hovered} />
                 <ArrowRight className="size-4" />
@@ -251,7 +247,7 @@ export function HomePage() {
                 href="#pipeline"
                 onMouseEnter={heroPipeline.onMouseEnter}
                 onMouseLeave={heroPipeline.onMouseLeave}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 border border-neutral-300 px-5 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900 sm:w-auto"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 border border-neutral-300 px-5 text-sm font-medium text-neutral-700 transition-colors hover:border-neutral-900 hover:text-neutral-900 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-white dark:hover:text-white sm:w-auto"
               >
                 <ScrambleText text="See the pipeline" active={heroPipeline.hovered} />
                 <ArrowDown className="size-4" />
@@ -270,13 +266,13 @@ export function HomePage() {
       {/* ─── PIPELINE ─── */}
       <section id="pipeline" className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
             01 - Pipeline
           </p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
             One task. A governed pipeline.
           </h2>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             Nothing about the workforce is fixed in advance. Every step is
             discovered, scored, and enforced at run time.
           </p>
@@ -289,19 +285,19 @@ export function HomePage() {
               return (
                 <li key={step.label} className="relative flex gap-4 pb-8 last:pb-0">
                   {!isLast && (
-                    <span className="absolute top-11 bottom-0 left-5.25 w-px bg-neutral-200" aria-hidden />
+                    <span className="absolute top-11 bottom-0 left-5.25 w-px bg-neutral-200 dark:bg-neutral-800" aria-hidden />
                   )}
-                  <div className="relative z-10 flex size-11 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-700 shadow-sm">
+                  <div className="relative z-10 flex size-11 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-700 shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
                     <Icon className="size-4.5" />
                   </div>
                   <div className="pt-1.5">
                     <div className="flex items-baseline gap-2">
-                      <span className="font-mono text-[11px] text-neutral-400">
+                      <span className="font-mono text-[11px] text-neutral-400 dark:text-neutral-500">
                         {String(i + 1).padStart(2, "0")}
                       </span>
-                      <span className="text-[15px] font-semibold text-neutral-900">{step.label}</span>
+                      <span className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-50">{step.label}</span>
                     </div>
-                    <p className="mt-0.5 text-[13px] text-neutral-500">{step.desc}</p>
+                    <p className="mt-0.5 text-[13px] text-neutral-500 dark:text-neutral-400">{step.desc}</p>
                   </div>
                 </li>
               );
@@ -310,19 +306,19 @@ export function HomePage() {
 
           {/* desktop: horizontal stepper */}
           <div className="relative mt-14 hidden lg:grid lg:grid-cols-8">
-            <div className="absolute inset-x-0 top-6 h-px bg-neutral-200" aria-hidden />
+            <div className="absolute inset-x-0 top-6 h-px bg-neutral-200 dark:bg-neutral-800" aria-hidden />
             {PIPELINE_STEPS.map((step, i) => {
               const Icon = step.icon;
               return (
                 <div key={step.label} className="relative flex flex-col items-center px-2 text-center">
-                  <div className="relative z-10 flex size-12 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-700 shadow-sm">
+                  <div className="relative z-10 flex size-12 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-700 shadow-sm dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
                     <Icon className="size-5" />
                   </div>
-                  <span className="mt-3 font-mono text-[10.5px] text-neutral-400">
+                  <span className="mt-3 font-mono text-[10.5px] text-neutral-400 dark:text-neutral-500">
                     {String(i + 1).padStart(2, "0")}
                   </span>
-                  <span className="mt-0.5 text-[13.5px] font-semibold text-neutral-900">{step.label}</span>
-                  <span className="mt-0.5 text-[11.5px] text-neutral-400">{step.desc}</span>
+                  <span className="mt-0.5 text-[13.5px] font-semibold text-neutral-900 dark:text-neutral-50">{step.label}</span>
+                  <span className="mt-0.5 text-[11.5px] text-neutral-400 dark:text-neutral-500">{step.desc}</span>
                 </div>
               );
             })}
@@ -335,65 +331,65 @@ export function HomePage() {
       {/* ─── CAPABILITIES ─── */}
       <section id="capabilities" className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
             02 - Capabilities
           </p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
             Built for governed autonomy.
           </h2>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             For anyone who needs an AI task finished inside a hard budget -
             founders scoping a report, ops teams capping agent spend,
             reviewers auditing the chain of custody.
           </p>
 
-          <div className="mt-10 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+          <div className="mt-10 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-3 dark:border-neutral-800 dark:bg-neutral-800">
             {WORKFORCE_STATS.map((stat) => (
-              <div key={stat.label} className="flex items-start gap-4 bg-white px-6 py-6">
+              <div key={stat.label} className="flex items-start gap-4 bg-white px-6 py-6 dark:bg-neutral-950">
                 <stat.icon
-                  className="mt-0.5 size-5 shrink-0 text-neutral-400"
+                  className="mt-0.5 size-5 shrink-0 text-neutral-400 dark:text-neutral-500"
                   strokeWidth={1.75}
                 />
                 <div>
-                  <p className="font-mono text-2xl font-semibold text-neutral-900 sm:text-3xl">
+                  <p className="font-mono text-2xl font-semibold text-neutral-900 sm:text-3xl dark:text-neutral-50">
                     {stat.value}
                   </p>
-                  <p className="mt-1 text-[12.5px] leading-snug text-neutral-500">
+                  <p className="mt-1 text-[12.5px] leading-snug text-neutral-500 dark:text-neutral-400">
                     {stat.label}
                   </p>
                 </div>
               </div>
             ))}
           </div>
-          <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+          <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
             v1 - text in, text out
           </p>
         </div>
 
-        <div className="mx-auto mt-12 max-w-6xl border border-neutral-200">
+        <div className="mx-auto mt-12 max-w-6xl border border-neutral-200 dark:border-neutral-800">
           {[FEATURES.slice(0, 3), FEATURES.slice(3, 6)].map((row, ri) => (
             <div
               key={ri}
               className={[
-                "grid grid-cols-1 divide-y divide-neutral-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0",
-                ri === 1 ? "border-t border-neutral-200" : "",
+                "grid grid-cols-1 divide-y divide-neutral-200 sm:grid-cols-3 sm:divide-x sm:divide-y-0 dark:divide-neutral-800",
+                ri === 1 ? "border-t border-neutral-200 dark:border-neutral-800" : "",
               ].join(" ")}
             >
               {row.map((f) => (
                 <div
                   key={f.title}
-                  className="group p-7 transition-colors duration-200 hover:bg-neutral-50"
+                  className="group p-7 transition-colors duration-200 hover:bg-neutral-50 dark:hover:bg-neutral-900"
                 >
-                  <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white transition-colors duration-200 group-hover:border-neutral-900">
+                  <div className="flex size-10 items-center justify-center border border-neutral-200 bg-white transition-colors duration-200 group-hover:border-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:group-hover:border-white">
                     <f.icon
-                      className="size-4.5 text-neutral-900 transition-transform duration-300 ease-out group-hover:-translate-y-0.5 group-hover:scale-110 group-hover:rotate-6"
+                      className="size-4.5 text-neutral-900 transition-transform duration-300 ease-out group-hover:-translate-y-0.5 group-hover:scale-110 group-hover:rotate-6 dark:text-neutral-50"
                       strokeWidth={1.75}
                     />
                   </div>
-                  <h3 className="mt-4 text-[15px] font-semibold text-neutral-900">
+                  <h3 className="mt-4 text-[15px] font-semibold text-neutral-900 dark:text-neutral-50">
                     {f.title}
                   </h3>
-                  <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500">
+                  <p className="mt-2 text-[13.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
                     {f.desc}
                   </p>
                 </div>
@@ -403,12 +399,12 @@ export function HomePage() {
         </div>
 
         <div className="mx-auto mt-10 max-w-6xl px-6">
-          <div className="border border-neutral-200 bg-neutral-50/70 px-6 py-7 sm:px-8">
+          <div className="border border-neutral-200 bg-neutral-50/70 px-6 py-7 sm:px-8 dark:border-neutral-800 dark:bg-neutral-900/40">
             <div className="flex items-baseline justify-between gap-4">
-              <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
                 Hireable for
               </p>
-              <p className="font-mono text-[11px] text-neutral-400">
+              <p className="font-mono text-[11px] text-neutral-400 dark:text-neutral-500">
                 {CAPABILITY_CHIPS.length} capabilities
               </p>
             </div>
@@ -416,7 +412,7 @@ export function HomePage() {
               {CAPABILITY_CHIPS.map((label) => (
                 <span
                   key={label}
-                  className="inline-flex items-center border border-neutral-300 bg-white px-3 py-1.5 font-mono text-[12px] text-neutral-700 transition-colors duration-150 hover:border-neutral-900 hover:text-neutral-900"
+                  className="inline-flex items-center border border-neutral-300 bg-white px-3 py-1.5 font-mono text-[12px] text-neutral-700 transition-colors duration-150 hover:border-neutral-900 hover:text-neutral-900 dark:border-neutral-700 dark:bg-neutral-950 dark:text-neutral-300 dark:hover:border-white dark:hover:text-white"
                 >
                   {label}
                 </span>
@@ -431,21 +427,21 @@ export function HomePage() {
       {/* ─── DIFFERENTIATION ─── */}
       <section id="why-not-chat" className="py-20">
         <div className="mx-auto max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
             03 - Not a chat window
           </p>
-          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+          <h2 className="mt-3 max-w-xl text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
             ChatGPT answers. Kraven delivers, verified, under a budget.
           </h2>
-          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500">
+          <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             A chat tab gives you one model&apos;s best guess, and you&apos;re the one who has
             to decompose the task, check the numbers, and decide if it&apos;s good enough.
             Kraven runs that whole loop as a governed, paid pipeline - and only charges you
             for work that actually passes.
           </p>
 
-          <div className="mt-10 border border-neutral-200">
-            <div className="hidden grid-cols-[1fr_auto_auto] border-b border-neutral-200 bg-neutral-50 px-5 py-3 font-mono text-[11px] uppercase tracking-wider text-neutral-400 sm:grid">
+          <div className="mt-10 border border-neutral-200 dark:border-neutral-800">
+            <div className="hidden grid-cols-[1fr_auto_auto] border-b border-neutral-200 bg-neutral-50 px-5 py-3 font-mono text-[11px] uppercase tracking-wider text-neutral-400 sm:grid dark:border-neutral-800 dark:bg-neutral-900/40 dark:text-neutral-500">
               <span />
               <span className="w-32 px-4 text-center">ChatGPT / Claude chat</span>
               <span className="w-32 px-4 text-center">Kraven</span>
@@ -454,16 +450,16 @@ export function HomePage() {
               <div
                 key={row}
                 className={[
-                  "grid grid-cols-[1fr_auto] items-center gap-3 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:border-neutral-200",
-                  i !== 0 ? "border-t border-neutral-200" : "",
+                  "grid grid-cols-[1fr_auto] items-center gap-3 px-5 py-4 sm:grid-cols-[1fr_auto_auto] sm:border-neutral-200 dark:sm:border-neutral-800",
+                  i !== 0 ? "border-t border-neutral-200 dark:border-neutral-800" : "",
                 ].join(" ")}
               >
-                <p className="text-[13.5px] leading-snug text-neutral-700">{row}</p>
+                <p className="text-[13.5px] leading-snug text-neutral-700 dark:text-neutral-300">{row}</p>
                 <span className="hidden w-32 items-center justify-center px-4 sm:flex">
-                  <X className="size-4 text-neutral-300" strokeWidth={2.25} />
+                  <X className="size-4 text-neutral-300 dark:text-neutral-700" strokeWidth={2.25} />
                 </span>
                 <span className="flex w-10 items-center justify-center sm:w-32 sm:px-4">
-                  <Check className="size-4 text-emerald-600" strokeWidth={2.5} />
+                  <Check className="size-4 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} />
                 </span>
               </div>
             ))}
@@ -471,29 +467,29 @@ export function HomePage() {
         </div>
 
         <div className="mx-auto mt-16 max-w-6xl px-6">
-          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
             What people actually run
           </p>
-          <h3 className="mt-3 max-w-xl text-xl font-semibold tracking-tight text-neutral-900 sm:text-2xl">
+          <h3 className="mt-3 max-w-xl text-xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-2xl">
             Real tasks, real budgets.
           </h3>
 
-          <div className="mt-8 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-3">
+          <div className="mt-8 grid grid-cols-1 gap-px border border-neutral-200 bg-neutral-200 sm:grid-cols-3 dark:border-neutral-800 dark:bg-neutral-800">
             {EXAMPLE_TASKS.map((ex) => (
-              <div key={ex.title} className="flex flex-col gap-3 bg-white p-7">
+              <div key={ex.title} className="flex flex-col gap-3 bg-white p-7 dark:bg-neutral-950">
                 <div className="flex items-start justify-between gap-3">
-                  <h4 className="text-[15px] font-semibold text-neutral-900">{ex.title}</h4>
-                  <FileCheck2 className="mt-0.5 size-4 shrink-0 text-neutral-300" strokeWidth={1.75} />
+                  <h4 className="text-[15px] font-semibold text-neutral-900 dark:text-neutral-50">{ex.title}</h4>
+                  <FileCheck2 className="mt-0.5 size-4 shrink-0 text-neutral-300 dark:text-neutral-700" strokeWidth={1.75} />
                 </div>
-                <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+                <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
                   Budget: {ex.budget}
                 </p>
-                <p className="text-[12px] leading-relaxed text-neutral-500">{ex.pipeline}</p>
-                <p className="mt-1 text-[13.5px] leading-relaxed text-neutral-600">{ex.outcome}</p>
+                <p className="text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-400">{ex.pipeline}</p>
+                <p className="mt-1 text-[13.5px] leading-relaxed text-neutral-600 dark:text-neutral-300">{ex.outcome}</p>
               </div>
             ))}
           </div>
-          <p className="mt-4 text-[12px] text-neutral-400">
+          <p className="mt-4 text-[12px] text-neutral-400 dark:text-neutral-500">
             Example pipelines and budgets shown for illustration - the Manager composes the
             actual workforce and cost per task at run time.
           </p>
@@ -506,19 +502,19 @@ export function HomePage() {
       <section id="security" className="py-20">
         <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-2 lg:items-center">
           <div>
-            <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
               04 - Security
             </p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-neutral-900 sm:text-4xl">
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-50 sm:text-4xl">
               Rogue agents don&apos;t move money.
             </h2>
-            <p className="mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500">
+            <p className="mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
               An agent can request anything it wants. Only a deterministic
               policy - not an LLM, not a UI, not a promise - decides whether
               the ledger moves. Every check runs before the mutation, and a
               blocked transfer changes no balance.
             </p>
-            <ul className="mt-8 space-y-3 font-mono text-[13px] text-neutral-600">
+            <ul className="mt-8 space-y-3 font-mono text-[13px] text-neutral-600 dark:text-neutral-400">
               {[
                 "Scoped, per-task spend authorization",
                 "Duplicate and expired-credential rejection",
@@ -526,21 +522,21 @@ export function HomePage() {
                 "Blocked transfer ⇒ zero balance mutation",
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
-                  <span className="mt-1.5 h-1 w-1 shrink-0 bg-neutral-400" />
+                  <span className="mt-1.5 h-1 w-1 shrink-0 bg-neutral-400 dark:bg-neutral-600" />
                   {item}
                 </li>
               ))}
             </ul>
           </div>
 
-          <div className="border border-neutral-300 shadow-[8px_8px_0_0_theme(colors.neutral.100)]">
-            <div className="flex items-center gap-2 border-b border-neutral-300 bg-red-50 px-5 py-3">
-              <ShieldAlert className="size-4 text-red-600" strokeWidth={2} />
-              <span className="font-mono text-[12px] font-semibold uppercase tracking-wider text-red-700">
+          <div className="border border-neutral-300 shadow-[8px_8px_0_0_theme(colors.neutral.100)] dark:border-neutral-700 dark:shadow-[8px_8px_0_0_theme(colors.neutral.800)]">
+            <div className="flex items-center gap-2 border-b border-neutral-300 bg-red-50 px-5 py-3 dark:border-neutral-700 dark:bg-red-500/10">
+              <ShieldAlert className="size-4 text-red-600 dark:text-red-400" strokeWidth={2} />
+              <span className="font-mono text-[12px] font-semibold uppercase tracking-wider text-red-700 dark:text-red-400">
                 Circuit breaker triggered
               </span>
             </div>
-            <dl className="divide-y divide-neutral-200 font-mono text-[13px]">
+            <dl className="divide-y divide-neutral-200 font-mono text-[13px] dark:divide-neutral-800">
               {[
                 ["Agent", "atlas"],
                 ["Requested", "10,000 tokens"],
@@ -549,14 +545,14 @@ export function HomePage() {
                 ["Ledger", "UNCHANGED"],
               ].map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between px-5 py-3">
-                  <dt className="text-neutral-400">{k}</dt>
+                  <dt className="text-neutral-400 dark:text-neutral-500">{k}</dt>
                   <dd
                     className={
                       k === "Result"
-                        ? "font-semibold text-red-600"
+                        ? "font-semibold text-red-600 dark:text-red-400"
                         : k === "Ledger"
-                          ? "font-semibold text-emerald-600"
-                          : "text-neutral-900"
+                          ? "font-semibold text-emerald-600 dark:text-emerald-400"
+                          : "text-neutral-900 dark:text-neutral-50"
                     }
                   >
                     {v}
@@ -573,10 +569,10 @@ export function HomePage() {
       {/* ─── FINAL CTA ─── */}
       <section className="py-24">
         <div className="mx-auto max-w-6xl px-6 text-center">
-          <h2 className="mx-auto max-w-2xl text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
+          <h2 className="mx-auto max-w-2xl text-[26px] font-medium leading-[1.2] tracking-[-0.01em] text-neutral-900 dark:text-neutral-50 sm:text-4xl lg:text-[2.6rem] xl:text-[2.9rem]">
             Put your workforce on a budget.
           </h2>
-          <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500">
+          <p className="mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             Give Kraven a task and a hard limit. Watch it hire, verify, pay,
             and learn - inside a policy it cannot talk its way out of.
           </p>
@@ -585,7 +581,7 @@ export function HomePage() {
             onClick={handleLaunch}
             onMouseEnter={footerLaunch.onMouseEnter}
             onMouseLeave={footerLaunch.onMouseLeave}
-            className="mt-9 inline-flex h-11 items-center gap-2 border border-neutral-900 bg-neutral-900 px-6 text-sm font-medium text-white transition-colors hover:bg-neutral-800"
+            className="mt-9 inline-flex h-11 items-center gap-2 border border-neutral-900 bg-neutral-900 px-6 text-sm font-medium text-white transition-colors hover:bg-neutral-800 dark:border-white dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
           >
             <ScrambleText text="Launch console" active={footerLaunch.hovered} />
             <ArrowRight className="size-4" />
@@ -596,11 +592,11 @@ export function HomePage() {
       <ScaleDivider />
 
       {/* ─── FOOTER ─── */}
-      <footer className="border-t border-neutral-200 py-10">
+      <footer className="border-t border-neutral-200 py-10 dark:border-neutral-800">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
-          <span className="font-mono text-[12px] text-neutral-400">© 2026 Kraven. All rights reserved.</span>
-          <div className="flex items-center gap-6 font-mono text-[11px] uppercase tracking-wider text-neutral-400">
-            <FooterLinks linkClassName="transition-colors hover:text-neutral-700" />
+          <span className="font-mono text-[12px] text-neutral-400 dark:text-neutral-500">© 2026 Kraven. All rights reserved.</span>
+          <div className="flex items-center gap-6 font-mono text-[11px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">
+            <FooterLinks linkClassName="transition-colors hover:text-neutral-700 dark:hover:text-neutral-300" />
           </div>
         </div>
       </footer>
