@@ -46,6 +46,15 @@ export function sarvamCallTimeoutMs(params: { tier?: SarvamModelTier; largeOutpu
   const spec = SARVAM_MODEL_TIERS[params.tier ?? "economy"] ?? SARVAM_MODEL_TIERS.economy;
   if (spec.reasoningEffort === "high") return params.largeOutput ? 110_000 : 90_000;
   if (spec.reasoningEffort === "low") return 70_000;
+  // Economy still hard-caps output at SARVAM_MAX_OUTPUT_TOKENS regardless of
+  // largeOutput (structuredGenerate.ts), but a multi-entity structured
+  // deliverable (e.g. a 4-competitor comparison with SWOT + dataPoints per
+  // competitor) is still a heavier generation than the flat budget assumes,
+  // and routinely blew the 45s ceiling during calibration - every economy
+  // agent's competitive/financial analysis sample fell back to free-form,
+  // losing the structured dataPoints/competitors it would otherwise be
+  // scored on. Give it the same room as the "low" reasoning tier.
+  if (params.largeOutput) return 70_000;
   return SARVAM_CALL_TIMEOUT_MS;
 }
 

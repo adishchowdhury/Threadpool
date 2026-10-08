@@ -25,9 +25,10 @@ export function PricingSection() {
               Pricing that scales with your workforce.
             </h2>
             <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-              Every plan runs the same governed pipeline - discovery, ranking, escrow, QA, and
-              payment. Higher tiers raise how much your workforce can spend and how much of it
-              you can run at once.
+              Every plan runs the identical governed pipeline - discovery, ranking, escrow, QA,
+              and payment. Nothing is stubbed at Starter. What scales per tier is how much your
+              workforce is trusted to spend, how often you run it, and whether it gets to
+              remember what worked last time.
             </p>
           </div>
 
@@ -76,6 +77,29 @@ export function PricingSection() {
             shown are what each plan will cost after general availability, so you can plan ahead
             - we&apos;ll give advance notice before anything is charged.
           </p>
+        </div>
+
+        {/* Why pricing scales this way */}
+        <div className="mt-10 grid grid-cols-1 gap-px overflow-hidden border border-neutral-200 bg-neutral-200 sm:grid-cols-3 dark:border-neutral-800 dark:bg-neutral-800">
+          {[
+            {
+              k: "Spend ceiling",
+              v: "The budget a tier authorizes per task is the exact number the Circuit Breaker enforces - a higher tier is more blast radius you trust the workforce with, not a seat count.",
+            },
+            {
+              k: "Throughput",
+              v: "Tasks per month caps how many governed runs - full discovery through payment - you can execute, independent of how big any single task's budget is.",
+            },
+            {
+              k: "Compounding memory",
+              v: "Workflow Memory and Optimization Gain reporting only pay off on repeat tasks, so they unlock at Growth and above rather than sitting unused on a trial.",
+            },
+          ].map((item) => (
+            <div key={item.k} className="bg-white px-6 py-5 dark:bg-neutral-950">
+              <p className="font-mono text-[10.5px] uppercase tracking-wider text-neutral-400 dark:text-neutral-500">{item.k}</p>
+              <p className="mt-2 text-[13px] leading-relaxed text-neutral-600 dark:text-neutral-400">{item.v}</p>
+            </div>
+          ))}
         </div>
 
         {/* Plan cards */}

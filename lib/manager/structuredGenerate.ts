@@ -50,15 +50,25 @@ export async function generateStructuredWithUsage<T extends z.ZodType>(params: {
     // high-effort call (e.g. the final integration review) burn up to
     // 2x150s, most of the whole task's serverless duration limit, on its own.
     const timeoutMs = clampTimeout(attempt === 0 ? sarvamCallTimeoutMs({ tier: params.tier, largeOutput: params.largeOutput }) : SARVAM_CALL_TIMEOUT_MS);
-    const res = await generateText({
-      model: sarvamModel(params.tier),
-      // Judgments (QA, planning) should be repeatable, not sampled.
-      temperature: 0,
-      maxOutputTokens,
-      abortSignal: AbortSignal.timeout(timeoutMs),
-      ...(params.system ? { system: params.system } : {}),
-      prompt: attempt === 0 ? basePrompt : basePrompt + BRIEF_REASONING_NOTE,
-    });
+    let res: Awaited<ReturnType<typeof generateText>>;
+    try {
+      res = await generateText({
+        model: sarvamModel(params.tier),
+        // Judgments (QA, planning) should be repeatable, not sampled.
+        temperature: 0,
+        maxOutputTokens,
+        abortSignal: AbortSignal.timeout(timeoutMs),
+        ...(params.system ? { system: params.system } : {}),
+        prompt: attempt === 0 ? basePrompt : basePrompt + BRIEF_REASONING_NOTE,
+      });
+    } catch (err) {
+      // A timeout/abort used to throw straight out of this function,
+      // skipping the retry below entirely and forcing the caller's catch
+      // block to give up on structured output after a single slow call.
+      // Give it the same second chance a truncated/empty JSON response gets.
+      lastError = err;
+      continue;
+    }
     usage.inputTokens += res.usage.inputTokens ?? 0;
     usage.outputTokens += res.usage.outputTokens ?? 0;
     const cleaned = res.text

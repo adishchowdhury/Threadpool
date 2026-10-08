@@ -23,6 +23,7 @@ export const BRIEF_REASONING_NOTE =
 
 export async function generateWithReasoningGuard(params: { tier: SarvamModelTier; system?: string | null; prompt: string }): Promise<{ text: string; usage: Usage }> {
   let usage: Usage | undefined;
+  let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     // Only the first attempt needs the tier's full budget - the retry
     // explicitly asks for brief reasoning, so it should come back fast; giving
@@ -30,18 +31,29 @@ export async function generateWithReasoningGuard(params: { tier: SarvamModelTier
     // 2x a premium tier's ~100-150s timeout, most of a whole task's
     // serverless duration budget on its own.
     const timeoutMs = clampTimeout(attempt === 0 ? sarvamCallTimeoutMs({ tier: params.tier }) : SARVAM_CALL_TIMEOUT_MS);
-    const res = await generateText({
-      model: sarvamModel(params.tier),
-      maxOutputTokens: SARVAM_MAX_OUTPUT_TOKENS,
-      abortSignal: AbortSignal.timeout(timeoutMs),
-      ...(params.system ? { system: params.system } : {}),
-      prompt: attempt === 0 ? params.prompt : params.prompt + BRIEF_REASONING_NOTE,
-    });
+    let res: Awaited<ReturnType<typeof generateText>>;
+    try {
+      res = await generateText({
+        model: sarvamModel(params.tier),
+        maxOutputTokens: SARVAM_MAX_OUTPUT_TOKENS,
+        abortSignal: AbortSignal.timeout(timeoutMs),
+        ...(params.system ? { system: params.system } : {}),
+        prompt: attempt === 0 ? params.prompt : params.prompt + BRIEF_REASONING_NOTE,
+      });
+    } catch (err) {
+      // A timeout/abort on attempt 0 used to throw straight out of this
+      // function, skipping the retry below entirely - one slow response was
+      // enough to sacrifice the whole call. Give it the same second chance
+      // an empty response already got.
+      lastError = err;
+      continue;
+    }
     usage = addUsage(usage, { inputTokens: res.usage.inputTokens ?? 0, outputTokens: res.usage.outputTokens ?? 0 });
     const text = res.text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
     if (text) return { text, usage };
   }
-  return { text: "", usage: usage! };
+  if (lastError && !usage) throw lastError;
+  return { text: "", usage: usage ?? { inputTokens: 0, outputTokens: 0 } };
 }
 
 // Free-text generation on the hired agent's model tier and persona.
