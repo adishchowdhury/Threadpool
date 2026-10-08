@@ -1,198 +1,105 @@
-import { Fragment, createElement } from "react";
+"use client";
 
-function renderInline(text: string, keyPrefix: string) {
-  const nodes: React.ReactNode[] = [];
-  const pattern = /(\*\*(.+?)\*\*|`(.+?)`|\*(.+?)\*)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let i = 0;
+import { useState, type ComponentProps } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import { Check, Copy } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(<Fragment key={`${keyPrefix}-t${i++}`}>{text.slice(lastIndex, match.index)}</Fragment>);
-    }
-    if (match[2] !== undefined) {
-      nodes.push(<strong key={`${keyPrefix}-b${i++}`}>{match[2]}</strong>);
-    } else if (match[3] !== undefined) {
-      nodes.push(
-        <code key={`${keyPrefix}-c${i++}`} className="rounded bg-panel-elevated px-1 py-0.5 font-mono text-[0.85em]">
-          {match[3]}
-        </code>,
-      );
-    } else if (match[4] !== undefined) {
-      nodes.push(<em key={`${keyPrefix}-i${i++}`}>{match[4]}</em>);
-    }
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    nodes.push(<Fragment key={`${keyPrefix}-t${i++}`}>{text.slice(lastIndex)}</Fragment>);
-  }
-  return nodes;
-}
+// Fenced ```code``` blocks render as <pre><code class="language-x">…</code></pre>;
+// a bare `inline` code span has no `language-*` class and no surrounding <pre>.
+function CodeBlock({ className, children, ...props }: ComponentProps<"code">) {
+  const match = /language-(\w+)/.exec(className ?? "");
+  const [copied, setCopied] = useState(false);
 
-export function MarkdownView({ content, className }: { content: string; className?: string }) {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const blocks: React.ReactNode[] = [];
-  let listItems: string[] | null = null;
-  let listType: "ul" | "ol" | null = null;
-  let paragraph: string[] = [];
-  let blockIndex = 0;
-  let tableRows: string[] = [];
-
-  function flushTable() {
-    if (tableRows.length === 0) return;
-    const parse = (row: string) => row.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
-    const rows = tableRows.filter((r) => !/^[\s|:-]+$/.test(r)).map(parse);
-    tableRows = [];
-    if (rows.length === 0) return;
-    const [head, ...body] = rows;
-    blocks.push(
-      <div key={`table-${blockIndex++}`} className="mb-3 overflow-x-auto rounded-md border border-panel-border last:mb-0">
-        <table className="w-full border-collapse text-left text-[0.85em]">
-          <thead className="bg-panel-elevated">
-            <tr>
-              {head.map((cell, i) => (
-                <th key={i} className="border-b border-panel-border px-2.5 py-1.5 font-semibold">
-                  {renderInline(cell, `th-${blockIndex}-${i}`)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {body.map((row, r) => (
-              <tr key={r} className="border-b border-panel-border last:border-0">
-                {row.map((cell, i) => (
-                  <td key={i} className="px-2.5 py-1.5 align-top">
-                    {renderInline(cell, `td-${blockIndex}-${r}-${i}`)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>,
+  if (!match) {
+    return (
+      <code className={cn("rounded bg-panel-elevated px-1 py-0.5 font-mono text-[0.85em]", className)} {...props}>
+        {children}
+      </code>
     );
   }
 
-  function flushParagraph() {
-    if (paragraph.length) {
-      const text = paragraph.join(" ").trim();
-      if (text) {
-        blocks.push(
-          <p key={`p-${blockIndex++}`} className="mb-3 leading-relaxed last:mb-0">
-            {renderInline(text, `p-${blockIndex}`)}
-          </p>,
-        );
-      }
-      paragraph = [];
+  const text = String(children).replace(/\n$/, "");
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard access denied - nothing to recover from here
     }
   }
 
-  function flushList() {
-    if (listItems && listItems.length) {
-      const items = listItems.map((item, idx) => (
-        <li key={`li-${blockIndex}-${idx}`} className="leading-relaxed">
-          {renderInline(item, `li-${blockIndex}-${idx}`)}
-        </li>
-      ));
-      blocks.push(
-        listType === "ol" ? (
-          <ol key={`list-${blockIndex++}`} className="mb-3 ml-5 list-decimal space-y-1 last:mb-0">
-            {items}
-          </ol>
-        ) : (
-          <ul key={`list-${blockIndex++}`} className="mb-3 ml-5 list-disc space-y-1 last:mb-0">
-            {items}
-          </ul>
-        ),
-      );
-    }
-    listItems = null;
-    listType = null;
-  }
+  return (
+    <div className="group/code relative my-3 overflow-hidden rounded-xl border border-panel-border bg-[#0d1117] last:mb-0">
+      <div className="flex items-center justify-between border-b border-white/10 px-3.5 py-1.5 text-xs text-white/50">
+        <span className="font-mono">{match[1]}</span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-white/10 hover:text-white/90"
+        >
+          {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto px-3.5 py-3 text-[0.82em] leading-relaxed">
+        <code className={className} {...props}>
+          {children}
+        </code>
+      </pre>
+    </div>
+  );
+}
 
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    const trimmed = line.trim();
-
-    if (trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 1) {
-      flushParagraph();
-      flushList();
-      tableRows.push(trimmed);
-      continue;
-    }
-    flushTable();
-
-    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-    const olMatch = /^(\d+)[.)]\s+(.*)$/.exec(trimmed);
-    const ulMatch = /^[-*+]\s+(.*)$/.exec(trimmed);
-    const hrMatch = /^(---|\*\*\*|___)$/.exec(trimmed);
-
-    if (!trimmed) {
-      flushParagraph();
-      flushList();
-      continue;
-    }
-
-    if (hrMatch) {
-      flushParagraph();
-      flushList();
-      blocks.push(<hr key={`hr-${blockIndex++}`} className="my-4 border-panel-border" />);
-      continue;
-    }
-
-    if (headingMatch) {
-      flushParagraph();
-      flushList();
-      const level = headingMatch[1].length;
-      const text = headingMatch[2];
-      const sizes: Record<number, string> = {
-        1: "text-xl font-semibold mt-5 mb-2",
-        2: "text-lg font-semibold mt-4 mb-2",
-        3: "text-base font-semibold mt-4 mb-1.5",
-        4: "text-sm font-semibold mt-3 mb-1",
-        5: "text-sm font-semibold mt-3 mb-1",
-        6: "text-sm font-semibold mt-3 mb-1",
-      };
-      const tagName = `h${Math.min(level, 6)}`;
-      blocks.push(
-        createElement(
-          tagName,
-          { key: `h-${blockIndex++}`, className: `${sizes[level]} first:mt-0` },
-          renderInline(text, `h-${blockIndex}`),
-        ),
-      );
-      continue;
-    }
-
-    if (olMatch) {
-      flushParagraph();
-      if (listType !== "ol") {
-        flushList();
-        listType = "ol";
-        listItems = [];
-      }
-      listItems!.push(olMatch[2]);
-      continue;
-    }
-
-    if (ulMatch) {
-      flushParagraph();
-      if (listType !== "ul") {
-        flushList();
-        listType = "ul";
-        listItems = [];
-      }
-      listItems!.push(ulMatch[1]);
-      continue;
-    }
-
-    flushList();
-    paragraph.push(trimmed);
-  }
-  flushParagraph();
-  flushList();
-  flushTable();
-
-  return <div className={className}>{blocks}</div>;
+export function MarkdownView({ content, className }: { content: string; className?: string }) {
+  return (
+    <div
+      className={cn(
+        "max-w-none",
+        "[&_p]:mb-3 [&_p]:leading-relaxed [&_p:last-child]:mb-0",
+        "[&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-xl [&_h1]:font-semibold [&_h1:first-child]:mt-0",
+        "[&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_h2:first-child]:mt-0",
+        "[&_h3]:mt-4 [&_h3]:mb-1.5 [&_h3]:text-base [&_h3]:font-semibold [&_h3:first-child]:mt-0",
+        "[&_h4]:mt-3 [&_h4]:mb-1 [&_h4]:text-sm [&_h4]:font-semibold [&_h5]:mt-3 [&_h5]:mb-1 [&_h5]:text-sm [&_h5]:font-semibold [&_h6]:mt-3 [&_h6]:mb-1 [&_h6]:text-sm [&_h6]:font-semibold",
+        "[&_ul]:mb-3 [&_ul]:ml-5 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul:last-child]:mb-0",
+        "[&_ol]:mb-3 [&_ol]:ml-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol:last-child]:mb-0",
+        "[&_li]:leading-relaxed [&_li>ul]:mt-1 [&_li>ol]:mt-1",
+        "[&_a]:underline [&_a]:underline-offset-2 [&_a]:decoration-muted-foreground/50 hover:[&_a]:decoration-foreground",
+        "[&_strong]:font-semibold",
+        "[&_hr]:my-4 [&_hr]:border-panel-border",
+        "[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-panel-border [&_blockquote]:pl-3.5 [&_blockquote]:italic [&_blockquote]:text-muted-foreground",
+        "[&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-lg",
+        "[&_table]:w-full [&_table]:border-collapse [&_table]:text-left [&_table]:text-[0.85em]",
+        "[&_th]:border-b [&_th]:border-panel-border [&_th]:bg-panel-elevated [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:font-semibold",
+        "[&_td]:border-b [&_td]:border-panel-border [&_td]:px-2.5 [&_td]:py-1.5 [&_td]:align-top [&_tr:last-child>td]:border-0",
+        "[&_.table-wrap]:my-3 [&_.table-wrap]:overflow-x-auto [&_.table-wrap]:rounded-md [&_.table-wrap]:border [&_.table-wrap]:border-panel-border [&_.table-wrap:last-child]:mb-0",
+        className,
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
+        components={{
+          code: CodeBlock,
+          pre: ({ children }) => <>{children}</>,
+          table: ({ children }) => (
+            <div className="table-wrap">
+              <table>{children}</table>
+            </div>
+          ),
+          a: ({ children, ...props }) => (
+            <a {...props} target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
 }

@@ -288,7 +288,7 @@ export function RunThread({
     : `${subtasks.length} steps · ${agentCount} agent${agentCount === 1 ? "" : "s"}`;
 
   return (
-    <div className="animate-in fade-in mx-auto w-full max-w-3xl space-y-7 px-4 py-8 duration-300 sm:px-6">
+    <div className="animate-in fade-in mx-auto w-full max-w-4xl space-y-7 px-4 py-8 duration-300 sm:px-6">
       {/* The request */}
       <div className="flex flex-col items-end gap-1.5">
         <div className="max-w-[88%] rounded-3xl bg-muted px-5 py-3 text-[15px] leading-relaxed wrap-break-word whitespace-pre-wrap">{task.prompt}</div>

@@ -404,7 +404,7 @@ export function Dashboard() {
           <>
         <div data-thread-scroller className="min-h-0 flex-1 overflow-y-auto">
           {!hasTask ? (
-            <div className="animate-in fade-in mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center px-4 pb-16 pt-4 duration-300">
+            <div className="animate-in fade-in mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center px-4 pb-16 pt-4 duration-300">
               {greeting && (
                 <p className="animate-in fade-in mb-2 text-center text-sm font-medium text-muted-foreground duration-300">{greeting}</p>
               )}
@@ -447,7 +447,7 @@ export function Dashboard() {
           ) : task ? (
             <RunThread key={task.id} task={task} events={taskEvents} elapsedSeconds={elapsedSeconds} memoryRecall={memoryRecall} />
           ) : (
-            <div className="animate-in fade-in mx-auto flex max-w-3xl items-center gap-2 px-6 py-10 text-sm text-muted-foreground duration-300">
+            <div className="animate-in fade-in mx-auto flex max-w-4xl items-center gap-2 px-6 py-10 text-sm text-muted-foreground duration-300">
               <Loader2 className="size-4 animate-spin" /> Loading task…
             </div>
           )}
@@ -455,7 +455,7 @@ export function Dashboard() {
 
         {hasTask && (
           <div className="shrink-0 px-4 pb-4 pt-2">
-            <div className="mx-auto w-full max-w-3xl">
+            <div className="mx-auto w-full max-w-4xl">
               <Composer
                 onCreated={handleCreated}
                 isRunning={isRunning}
